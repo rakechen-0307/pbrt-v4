@@ -328,9 +328,18 @@ PBRT_CPU_GPU inline Vector3<T> Transform::operator()(Vector3<T> v) const {
 template <typename T>
 PBRT_CPU_GPU inline Normal3<T> Transform::operator()(Normal3<T> n) const {
     T x = n.x, y = n.y, z = n.z;
+
+    /* Original correct Normal3f */
     return Normal3<T>(mInv[0][0] * x + mInv[1][0] * y + mInv[2][0] * z,
                       mInv[0][1] * x + mInv[1][1] * y + mInv[2][1] * z,
                       mInv[0][2] * x + mInv[1][2] * y + mInv[2][2] * z);
+
+    /* Incorrect: act as Vector3f */
+    /*
+    return Normal3<T>(m[0][0] * x + m[0][1] * y + m[0][2] * z,
+                      m[1][0] * x + m[1][1] * y + m[1][2] * z,
+                      m[2][0] * x + m[2][1] * y + m[2][2] * z);
+    */
 }
 
 PBRT_CPU_GPU inline Ray Transform::operator()(const Ray &r, Float *tMax) const {
