@@ -9,7 +9,7 @@
 ```bash
 mkdir build
 cmake -DCMAKE_CXX_COMPILER=g++-12 -DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CUDA_HOST_COMPILER=g++-12 -DCMAKE_BUILD_TYPE=Release -DPBRT_OPTIX_PATH=<your_path>/NVIDIA-OptiX-SDK-7.7.0-linux64-x86_64 -DCMAKE_CUDA_ARCHITECTURES=89 -DPBRT_GPU_SHADER_MODEL=sm_89 -DPBRT_FLOAT_AS_DOUBLE=OFF -B build
-cmake --build build
+cmake --build build -j8
 ```
 
 ## Render Command Example

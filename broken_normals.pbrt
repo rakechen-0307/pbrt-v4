@@ -10,12 +10,12 @@ Integrator "volpath"
 
 WorldBegin
 
-# A single point light to create clear shading and a distinct terminator line
+# Point light
 LightSource "point"
     "point3 from" [5 5 5]
     "rgb I" [200 200 200]
 
-# Add a simple ground plane for spatial reference
+# Ground plane
 AttributeBegin
     Translate 0 -0.5 0
     Rotate -90 1 0 0
@@ -25,11 +25,11 @@ AttributeBegin
         "point3 P" [ -5 -5 0   5 -5 0   5 5 0   -5 5 0 ]
 AttributeEnd
 
-# The Test Object
+# Object
 AttributeBegin
     # Non-uniform scale (Flattened on Y, stretched on X)
     Scale 3.0 0.5 1.0
     
-    Material "diffuse" "rgb reflectance" [0.2 0.7 0.3]
+    Material "diffuse" "rgb reflectance" [0.25 0.6 0.9]
     Shape "sphere" "float radius" [1]
 AttributeEnd
