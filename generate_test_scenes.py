@@ -1,7 +1,6 @@
 import os
 import math
 
-# List all the accelerators you want to benchmark
 ACCELERATORS = ["bvh", "kdtree", "uniformgrid", "twolevelgrid"]
 
 def get_header(accelerator, filename):
