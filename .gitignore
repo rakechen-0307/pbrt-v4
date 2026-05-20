@@ -10,3 +10,9 @@ src/build
 # Images
 **/*.exr
 **/*.png
+
+# Outputs
+outputs/
+
+# Test scenes
+test_scenes/

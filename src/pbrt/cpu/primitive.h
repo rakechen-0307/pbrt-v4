@@ -28,11 +28,14 @@ class TransformedPrimitive;
 class AnimatedPrimitive;
 class BVHAggregate;
 class KdTreeAggregate;
+class UniformGridAggregate;
+class TwoLevelGridAggregate;
 
 // Primitive Definition
 class Primitive
     : public TaggedPointer<SimplePrimitive, GeometricPrimitive, TransformedPrimitive,
-                           AnimatedPrimitive, BVHAggregate, KdTreeAggregate> {
+                           AnimatedPrimitive, BVHAggregate, KdTreeAggregate, 
+                           UniformGridAggregate, TwoLevelGridAggregate> {
   public:
     // Primitive Interface
     using TaggedPointer::TaggedPointer;

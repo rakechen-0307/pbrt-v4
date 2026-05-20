@@ -792,6 +792,7 @@ struct BoundEdge {
     EdgeType type;
 };
 
+STAT_MEMORY_COUNTER("Memory/Kd-tree", kdTreeBytes);
 STAT_PIXEL_COUNTER("Kd-Tree/Nodes visited", kdNodesVisited);
 
 // KdTreeAggregate Method Definitions
@@ -832,6 +833,11 @@ KdTreeAggregate::KdTreeAggregate(std::vector<Primitive> p, int isectCost,
     // Start recursive construction of kd-tree
     buildTree(0, bounds, primBounds, primNums, maxDepth, edges, pstd::span<int>(prims0),
               pstd::span<int>(prims1), 0);
+
+    kdTreeBytes += sizeof(*this) +
+                   primitives.size() * sizeof(Primitive) +
+                   nAllocedNodes * sizeof(KdTreeNode) +
+                   primitiveIndices.capacity() * sizeof(int);
 }
 
 void KdTreeNode::InitLeaf(pstd::span<const int> primNums,
@@ -1160,6 +1166,730 @@ KdTreeAggregate *KdTreeAggregate::Create(std::vector<Primitive> prims,
                                maxPrims, maxDepth);
 }
 
+// Voxel Declarations
+struct Voxel {
+    std::vector<int> primitives;
+    
+    // Add a primitive index to the voxel if it's not already present
+    void AddPrimitive(int primIndex) {
+        if (std::find(primitives.begin(), primitives.end(), primIndex) == primitives.end()) {
+            primitives.push_back(primIndex);
+        }
+    }
+};
+
+STAT_MEMORY_COUNTER("Memory/Uniform Grid", gridBytes);
+STAT_PIXEL_COUNTER("Uniform Grid/Voxels visited", gridVoxelsVisited);
+
+UniformGridAggregate::UniformGridAggregate(std::vector<Primitive> p)
+    : primitives(std::move(p)) {
+    // Compute bounds
+    for (const auto &prim : primitives) {
+        bounds = Union(bounds, prim.Bounds());
+    }
+    Vector3f delta = bounds.pMax - bounds.pMin;
+
+    // Determine grid resolution
+    int maxAxis = bounds.MaxDimension();
+    Float invMaxWidth = 1.f / delta[maxAxis];
+    Float cubeRoot = 3.f * powf(float(primitives.size()), 1.f/3.f);
+    Float voxelsPerUnitDist = cubeRoot * invMaxWidth;
+    for (int axis = 0; axis < 3; ++axis) {
+        nVoxels[axis] = std::round(delta[axis] * voxelsPerUnitDist);
+        nVoxels[axis] = std::clamp(nVoxels[axis], 1, 64);
+    }
+
+    // Compute voxel sizes
+    for (int axis = 0; axis < 3; ++axis) {
+        width[axis] = delta[axis] / nVoxels[axis];
+        invWidth[axis] = (width[axis] == 0.f) ? 0.f : 1.f / width[axis];
+    }
+
+    // Allocate voxels
+    int nTotalVoxels = nVoxels[0] * nVoxels[1] * nVoxels[2];
+    voxels = new Voxel*[nTotalVoxels]();
+
+    // Add primitives to grid voxels
+    for (size_t i = 0; i < primitives.size(); ++i) {
+        Bounds3f pb = primitives[i].Bounds();
+
+        int vMin[3], vMax[3];
+        for (int axis = 0; axis < 3; ++axis) {
+            vMin[axis] = posToVoxel(pb.pMin, axis);
+            vMax[axis] = posToVoxel(pb.pMax, axis);
+        }
+
+        // Add primitive to overlapping voxels
+        for (int z = vMin[2]; z <= vMax[2]; ++z) {
+            for (int y = vMin[1]; y <= vMax[1]; ++y) {
+                for (int x = vMin[0]; x <= vMax[0]; ++x) {
+                    int o = offset(x, y, z);
+                    if (!voxels[o]) {
+                        voxels[o] = new Voxel;
+                    }
+                    voxels[o]->AddPrimitive(i);
+                }
+            }
+        }
+    }
+
+    size_t bytes = sizeof(*this);
+    bytes += nTotalVoxels * sizeof(Voxel*);
+    for (int i = 0; i < nTotalVoxels; ++i) {
+        if (voxels[i]) {
+            bytes += sizeof(Voxel);
+            bytes += voxels[i]->primitives.capacity() * sizeof(int);
+        }
+    }
+    gridBytes += bytes;
+}
+
+UniformGridAggregate::~UniformGridAggregate() {
+    if (voxels) {
+        int nTotalVoxels = nVoxels[0] * nVoxels[1] * nVoxels[2];
+        for (int i = 0; i < nTotalVoxels; ++i) {
+            delete voxels[i];
+        }
+        delete[] voxels;
+    }
+}
+
+pstd::optional<ShapeIntersection> UniformGridAggregate::Intersect(const Ray &ray, Float tMax) const {
+    // Check if the ray intersects the grid's bounding box
+    Float rayTMin, rayTMax;
+    if (!bounds.IntersectP(ray.o, ray.d, tMax, &rayTMin, &rayTMax)) {
+        return {};
+    }
+
+    // Initialize 3D DDA traversal variables
+    Vector3f invDir(1.f / ray.d.x, 1.f / ray.d.y, 1.f / ray.d.z);
+    int pos[3], step[3], out[3];
+    Float tNext[3], tDelta[3];
+
+    // Determine if the ray origin is inside the grid
+    bool inside = (ray.o.x >= bounds.pMin.x && ray.o.x <= bounds.pMax.x &&
+                   ray.o.y >= bounds.pMin.y && ray.o.y <= bounds.pMax.y &&
+                   ray.o.z >= bounds.pMin.z && ray.o.z <= bounds.pMax.z);
+
+    Point3f gridIntersect = inside ? ray.o : ray(rayTMin);
+
+    // Voxel stepping for each axis
+    for (int axis = 0; axis < 3; ++axis) {
+        pos[axis] = posToVoxel(gridIntersect, axis);
+        if (ray.d[axis] >= 0) {
+            tNext[axis] = rayTMin + (voxelToPos(pos[axis] + 1, axis) - gridIntersect[axis]) * invDir[axis];
+            tDelta[axis] = width[axis] * invDir[axis];
+            step[axis] = 1;
+            out[axis] = nVoxels[axis];
+        }
+        else {
+            tNext[axis] = rayTMin + (gridIntersect[axis] - voxelToPos(pos[axis], axis)) * (-invDir[axis]);
+            tDelta[axis] = width[axis] * (-invDir[axis]);
+            step[axis] = -1;
+            out[axis] = -1;
+        }
+    }
+
+    pstd::optional<ShapeIntersection> si;
+    bool hitSomething = false;
+
+    // Step through grid voxels
+    int voxelsVisited = 0;
+    while (true) {
+        ++voxelsVisited;
+        Voxel *voxel = voxels[offset(pos[0], pos[1], pos[2])];
+        if (voxel) {
+            // Test intersection against all primitives in this voxel
+            for (int primIndex : voxel->primitives) {
+                auto primSi = primitives[primIndex].Intersect(ray, tMax);
+                if (primSi) {
+                    si = primSi;
+                    tMax = si->tHit;  // Narrow the search distance
+                    hitSomething = true;
+                }
+            }
+        }
+
+        // Determine which axis to step along next
+        int stepAxis = (tNext[0] < tNext[1]) ?
+                       ((tNext[0] < tNext[2]) ? 0 : 2) :
+                       ((tNext[1] < tNext[2]) ? 1 : 2);
+
+        // If found a hit and the next voxel boundary is further than the hit, we can stop
+        if (hitSomething && tMax < tNext[stepAxis]) {
+            break;
+        }
+
+        // Advance to the next voxel
+        pos[stepAxis] += step[stepAxis];
+        
+        // If step outside the grid bounds, done
+        if (pos[stepAxis] == out[stepAxis]) {
+            break;
+        }
+
+        tNext[stepAxis] += tDelta[stepAxis];
+    }
+
+    gridVoxelsVisited += voxelsVisited;
+    return si;
+}
+
+bool UniformGridAggregate::IntersectP(const Ray &ray, Float tMax) const {
+    // Check if the ray intersects the grid's bounding box
+    Float rayTMin, rayTMax;
+    if (!bounds.IntersectP(ray.o, ray.d, tMax, &rayTMin, &rayTMax)) {
+        return false;
+    }
+
+    // Initialize 3D DDA traversal variables
+    Vector3f invDir(1.f / ray.d.x, 1.f / ray.d.y, 1.f / ray.d.z);
+    int pos[3], step[3], out[3];
+    Float tNext[3], tDelta[3];
+
+    // Determine if the ray origin is inside the grid
+    bool inside = (ray.o.x >= bounds.pMin.x && ray.o.x <= bounds.pMax.x &&
+                   ray.o.y >= bounds.pMin.y && ray.o.y <= bounds.pMax.y &&
+                   ray.o.z >= bounds.pMin.z && ray.o.z <= bounds.pMax.z);
+
+    Point3f gridIntersect = inside ? ray.o : ray(rayTMin);
+
+    // Voxel stepping for each axis
+    for (int axis = 0; axis < 3; ++axis) {
+        pos[axis] = posToVoxel(gridIntersect, axis);
+        if (ray.d[axis] >= 0) {
+            tNext[axis] = rayTMin + (voxelToPos(pos[axis] + 1, axis) - gridIntersect[axis]) * invDir[axis];
+            tDelta[axis] = width[axis] * invDir[axis];
+            step[axis] = 1;
+            out[axis] = nVoxels[axis];
+        }
+        else {
+            tNext[axis] = rayTMin + (gridIntersect[axis] - voxelToPos(pos[axis], axis)) * (-invDir[axis]);
+            tDelta[axis] = width[axis] * (-invDir[axis]);
+            step[axis] = -1;
+            out[axis] = -1;
+        }
+    }
+
+    // Step through grid voxels
+    int voxelsVisited = 0;
+    while (true) {
+        ++voxelsVisited;
+        Voxel *voxel = voxels[offset(pos[0], pos[1], pos[2])];
+        if (voxel) {
+            // Test intersection against all primitives in this voxel
+            for (int primIndex : voxel->primitives) {
+                // If any primitive returns true, the shadow ray is blocked
+                if (primitives[primIndex].IntersectP(ray, tMax)) {
+                    gridVoxelsVisited += voxelsVisited;
+                    return true;
+                }
+            }
+        }
+
+        // Determine which axis to step along next
+        int stepAxis = (tNext[0] < tNext[1]) ?
+                       ((tNext[0] < tNext[2]) ? 0 : 2) :
+                       ((tNext[1] < tNext[2]) ? 1 : 2);
+
+        // Advance to the next voxel
+        pos[stepAxis] += step[stepAxis];
+        
+        // If step outside the grid bounds, done
+        if (pos[stepAxis] == out[stepAxis]) {
+            break;
+        }
+
+        tNext[stepAxis] += tDelta[stepAxis];
+    }
+
+    gridVoxelsVisited += voxelsVisited;
+    return false;
+}
+
+int UniformGridAggregate::posToVoxel(const Point3f &p, int axis) const {
+    int v = int((p[axis] - bounds.pMin[axis]) * invWidth[axis]);
+    return std::clamp(v, 0, nVoxels[axis] - 1);
+}
+
+Float UniformGridAggregate::voxelToPos(int p, int axis) const {
+    return bounds.pMin[axis] + p * width[axis];
+}
+
+inline int UniformGridAggregate::offset(int x, int y, int z) const {
+    return z*nVoxels[0]*nVoxels[1] + y*nVoxels[0] + x;
+}
+
+UniformGridAggregate *UniformGridAggregate::Create(std::vector<Primitive> prims,
+                                                   const ParameterDictionary &parameters) {
+    return new UniformGridAggregate(std::move(prims));
+}
+
+// MicroGrid Definition
+struct MicroGrid {
+    int nVoxels[3];
+    Vector3f width, invWidth;
+    Bounds3f bounds;
+    Voxel **voxels = nullptr;
+    
+    ~MicroGrid() {
+        if (voxels) {
+            int total = nVoxels[0] * nVoxels[1] * nVoxels[2];
+            for (int i = 0; i < total; ++i) delete voxels[i];
+            delete[] voxels;
+        }
+    }
+};
+
+// MacroVoxel Definition
+struct MacroVoxel {
+    std::vector<int> primitives;
+    MicroGrid *microGrid = nullptr;
+
+    // Add a primitive index to the voxel if it's not already present
+    void AddPrimitive(int primIndex) {
+        if (std::find(primitives.begin(), primitives.end(), primIndex) == primitives.end()) {
+            primitives.push_back(primIndex);
+        }
+    }
+    
+    ~MacroVoxel() {
+        delete microGrid;
+    }
+};
+
+STAT_MEMORY_COUNTER("Memory/Two-Level Grid", twoLevelGridBytes);
+STAT_PIXEL_COUNTER("Two-Level Grid/Voxels visited", twoLevelVoxelsVisited);
+
+TwoLevelGridAggregate::TwoLevelGridAggregate(std::vector<Primitive> p, int maxPrimsPerVoxel)
+    : primitives(std::move(p)), maxPrimsPerVoxel(maxPrimsPerVoxel) {
+    // Compute bounds
+    for (const auto &prim : primitives) {
+        bounds = Union(bounds, prim.Bounds());
+    }
+    Vector3f delta = bounds.pMax - bounds.pMin;
+
+    // Determine macro grid resolution
+    int maxAxis = bounds.MaxDimension();
+    Float invMaxWidth = 1.f / delta[maxAxis];
+    Float cubeRoot = 3.f * powf(float(primitives.size()), 1.f/3.f);
+    Float voxelsPerUnitDist = cubeRoot * invMaxWidth;
+    for (int axis = 0; axis < 3; ++axis) {
+        nVoxels[axis] = std::round(delta[axis] * voxelsPerUnitDist);
+        nVoxels[axis] = std::clamp(nVoxels[axis], 1, 64);
+    }
+
+    // Compute macro voxel sizes
+    for (int axis = 0; axis < 3; ++axis) {
+        width[axis] = delta[axis] / nVoxels[axis];
+        invWidth[axis] = (width[axis] == 0.f) ? 0.f : 1.f / width[axis];
+    }
+
+    // Allocate macro voxels
+    int nTotalVoxels = nVoxels[0] * nVoxels[1] * nVoxels[2];
+    macroVoxels = new MacroVoxel*[nTotalVoxels]();
+
+    // Add primitives to grid voxels
+    for (size_t i = 0; i < primitives.size(); ++i) {
+        Bounds3f pb = primitives[i].Bounds();
+        int vMin[3], vMax[3];
+        for (int axis = 0; axis < 3; ++axis) {
+            vMin[axis] = posToVoxel(pb.pMin, axis, bounds, invWidth, nVoxels);
+            vMax[axis] = posToVoxel(pb.pMax, axis, bounds, invWidth, nVoxels);
+        }
+
+        // Add primitive to overlapping voxels
+        for (int z = vMin[2]; z <= vMax[2]; ++z) {
+            for (int y = vMin[1]; y <= vMax[1]; ++y) {
+                for (int x = vMin[0]; x <= vMax[0]; ++x) {
+                    int o = offset(x, y, z, nVoxels);
+                    if (!macroVoxels[o]) {
+                        macroVoxels[o] = new MacroVoxel;
+                    }
+                    macroVoxels[o]->AddPrimitive(i);
+                }
+            }
+        }
+    }
+
+    // Build micro grids for dense macro voxels
+    for (int i = 0; i < nTotalVoxels; ++i) {
+        if (macroVoxels[i] && macroVoxels[i]->primitives.size() > (size_t)maxPrimsPerVoxel) {
+            MacroVoxel *macro = macroVoxels[i];
+            macro->microGrid = new MicroGrid;
+            MicroGrid *micro = macro->microGrid;
+
+            // Reconstruct exact bounds of this specific macro voxel
+            int z = i / (nVoxels[0] * nVoxels[1]);
+            int rem = i % (nVoxels[0] * nVoxels[1]);
+            int y = rem / nVoxels[0];
+            int x = rem % nVoxels[0];
+
+            micro->bounds.pMin = bounds.pMin + Vector3f(x * width[0], y * width[1], z * width[2]);
+            micro->bounds.pMax = micro->bounds.pMin + width;
+            micro->bounds = pbrt::Intersect(micro->bounds, bounds);
+            Vector3f mDelta = micro->bounds.pMax - micro->bounds.pMin;
+
+            // Determine micro grid resolution
+            int mMaxAxis = micro->bounds.MaxDimension();
+            Float mInvMaxWidth = 1.f / mDelta[mMaxAxis];
+            Float mCubeRoot = 3.f * powf(float(macro->primitives.size()), 1.f/3.f);
+            Float mVoxelsPerUnitDist = mCubeRoot * mInvMaxWidth;
+            for (int axis = 0; axis < 3; ++axis) {
+                micro->nVoxels[axis] = std::round(mDelta[axis] * mVoxelsPerUnitDist);
+                micro->nVoxels[axis] = std::clamp(micro->nVoxels[axis], 1, 64);
+            }
+
+            // Compute micro voxel sizes
+            for (int axis = 0; axis < 3; ++axis) {
+                micro->width[axis] = mDelta[axis] / micro->nVoxels[axis];
+                micro->invWidth[axis] = (micro->width[axis] == 0.f) ? 0.f : 1.f / micro->width[axis];
+            }
+
+            // Allocate micro voxels
+            int nTotalMicroVoxels = micro->nVoxels[0] * micro->nVoxels[1] * micro->nVoxels[2];
+            micro->voxels = new Voxel*[nTotalMicroVoxels]();
+
+            // Add primitives to micro voxels
+            for (int primIdx : macro->primitives) {
+                Bounds3f pb = primitives[primIdx].Bounds();
+                int mVMin[3], mVMax[3];
+                for (int axis = 0; axis < 3; ++axis) {
+                    mVMin[axis] = posToVoxel(pb.pMin, axis, micro->bounds, micro->invWidth, micro->nVoxels);
+                    mVMax[axis] = posToVoxel(pb.pMax, axis, micro->bounds, micro->invWidth, micro->nVoxels);
+                }
+                for (int mz = mVMin[2]; mz <= mVMax[2]; ++mz) {
+                    for (int my = mVMin[1]; my <= mVMax[1]; ++my) {
+                        for (int mx = mVMin[0]; mx <= mVMax[0]; ++mx) {
+                            int mo = offset(mx, my, mz, micro->nVoxels);
+                            if (!micro->voxels[mo]) {
+                                micro->voxels[mo] = new Voxel;
+                            }
+                            micro->voxels[mo]->AddPrimitive(primIdx);
+                        }
+                    }
+                }
+            }
+            
+            // Reclaim memory from the macro voxel's primitive list
+            macro->primitives.clear();
+            macro->primitives.shrink_to_fit();
+        }
+    }
+
+    size_t bytes = sizeof(*this);
+    bytes += nTotalVoxels * sizeof(MacroVoxel*);
+    for (int i = 0; i < nTotalVoxels; ++i) {
+        if (macroVoxels[i]) {
+            bytes += sizeof(MacroVoxel);
+            bytes += macroVoxels[i]->primitives.capacity() * sizeof(int);
+            if (macroVoxels[i]->microGrid) {
+                bytes += sizeof(MicroGrid);
+                MicroGrid *micro = macroVoxels[i]->microGrid;
+                int nMicroTotal = micro->nVoxels[0] * micro->nVoxels[1] * micro->nVoxels[2];
+                bytes += nMicroTotal * sizeof(Voxel*);
+                for (int m = 0; m < nMicroTotal; ++m) {
+                    if (micro->voxels[m]) {
+                        bytes += sizeof(Voxel);
+                        bytes += micro->voxels[m]->primitives.capacity() * sizeof(int);
+                    }
+                }
+            }
+        }
+    }
+    twoLevelGridBytes += bytes;
+}
+
+TwoLevelGridAggregate::~TwoLevelGridAggregate() {
+    if (macroVoxels) {
+        int nTotalVoxels = nVoxels[0] * nVoxels[1] * nVoxels[2];
+        for (int i = 0; i < nTotalVoxels; ++i) {
+            delete macroVoxels[i];
+        }
+        delete[] macroVoxels;
+    }
+}
+
+pstd::optional<ShapeIntersection> TwoLevelGridAggregate::Intersect(const Ray &ray, Float tMax) const {
+    // Check if the ray intersects the grid's bounding box
+    Float rayTMin, rayTMax;
+    if (!bounds.IntersectP(ray.o, ray.d, tMax, &rayTMin, &rayTMax)) {
+        return {};
+    }
+
+    // Initialize 3D DDA traversal variables for macro grid
+    Vector3f invDir(1.f / ray.d.x, 1.f / ray.d.y, 1.f / ray.d.z);
+    int pos[3], step[3], out[3];
+    Float tNext[3], tDelta[3];
+
+    // Determine if the ray origin is inside the grid
+    bool inside = (ray.o.x >= bounds.pMin.x && ray.o.x <= bounds.pMax.x &&
+                   ray.o.y >= bounds.pMin.y && ray.o.y <= bounds.pMax.y &&
+                   ray.o.z >= bounds.pMin.z && ray.o.z <= bounds.pMax.z);
+    
+    Point3f gridIntersect = inside ? ray.o : ray(rayTMin);
+
+    // Voxel stepping for each axis in macro grid
+    for (int axis = 0; axis < 3; ++axis) {
+        pos[axis] = posToVoxel(gridIntersect, axis, bounds, invWidth, nVoxels);
+        if (ray.d[axis] >= 0) {
+            tNext[axis] = rayTMin + (voxelToPos(pos[axis] + 1, axis, bounds, width) - gridIntersect[axis]) * invDir[axis];
+            tDelta[axis] = width[axis] * invDir[axis];
+            step[axis] = 1;
+            out[axis] = nVoxels[axis];
+        } 
+        else {
+            tNext[axis] = rayTMin + (gridIntersect[axis] - voxelToPos(pos[axis], axis, bounds, width)) * -invDir[axis];
+            tDelta[axis] = width[axis] * -invDir[axis];
+            step[axis] = -1;
+            out[axis] = -1;
+        }
+    }
+
+    pstd::optional<ShapeIntersection> si;
+    bool hitSomething = false;
+    Float currentT = rayTMin;
+
+    // Step through macro grid voxels
+    int voxelsVisited = 0;
+    while (true) {
+        ++voxelsVisited;
+        MacroVoxel *macro = macroVoxels[offset(pos[0], pos[1], pos[2], nVoxels)];
+        int stepAxis = (tNext[0] < tNext[1]) ? ((tNext[0] < tNext[2]) ? 0 : 2) : ((tNext[1] < tNext[2]) ? 1 : 2);
+        Float tExit = std::min(tMax, tNext[stepAxis]);
+
+        // Nested traversal into micro grid if it exists, otherwise test primitives in macro voxel
+        if (macro) {
+            if (macro->microGrid) {
+                MicroGrid *micro = macro->microGrid;
+                Float mRayTMin, mRayTMax;
+                if (micro->bounds.IntersectP(ray.o, ray.d, tExit, &mRayTMin, &mRayTMax)) {
+                    mRayTMin = std::max(currentT, mRayTMin); // Enforce starting strictly at or inside the current macro voxel
+                    
+                    if (mRayTMin <= mRayTMax) {
+                        int mPos[3], mStep[3], mOut[3];
+                        Float mTNext[3], mTDelta[3];
+                        Point3f mGridIntersect = ray(mRayTMin);
+
+                        for (int axis = 0; axis < 3; ++axis) {
+                            mPos[axis] = posToVoxel(mGridIntersect, axis, micro->bounds, micro->invWidth, micro->nVoxels);
+                            if (ray.d[axis] >= 0) {
+                                mTNext[axis] = mRayTMin + (voxelToPos(mPos[axis] + 1, axis, micro->bounds, micro->width) - mGridIntersect[axis]) * invDir[axis];
+                                mTDelta[axis] = micro->width[axis] * invDir[axis];
+                                mStep[axis] = 1;
+                                mOut[axis] = micro->nVoxels[axis];
+                            } 
+                            else {
+                                mTNext[axis] = mRayTMin + (mGridIntersect[axis] - voxelToPos(mPos[axis], axis, micro->bounds, micro->width)) * -invDir[axis];
+                                mTDelta[axis] = micro->width[axis] * -invDir[axis];
+                                mStep[axis] = -1;
+                                mOut[axis] = -1;
+                            }
+                        }
+                        
+                        // Step through micro grid voxels
+                        while (true) {
+                            ++voxelsVisited;
+                            Voxel *microVoxel = micro->voxels[offset(mPos[0], mPos[1], mPos[2], micro->nVoxels)];
+                            
+                            if (microVoxel) {
+                                for (int primIdx : microVoxel->primitives) {
+                                    auto primSi = primitives[primIdx].Intersect(ray, tMax);
+                                    if (primSi) {
+                                        si = primSi;
+                                        tMax = si->tHit;
+                                        tExit = std::min(tMax, tNext[stepAxis]); 
+                                        hitSomething = true;
+                                    }
+                                }
+                            }
+
+                            int mStepAxis = (mTNext[0] < mTNext[1]) ? ((mTNext[0] < mTNext[2]) ? 0 : 2) : ((mTNext[1] < mTNext[2]) ? 1 : 2);
+                            
+                            if (hitSomething && tMax < mTNext[mStepAxis]) {
+                                break;
+                            }
+
+                            mPos[mStepAxis] += mStep[mStepAxis];
+                            
+                            // Exit micro grid if bounds breached
+                            if (mPos[mStepAxis] == mOut[mStepAxis] || mTNext[mStepAxis] > tExit) {
+                                break;
+                            }
+                            
+                            mTNext[mStepAxis] += mTDelta[mStepAxis];
+                        }
+                    }
+                }
+            } 
+            else {
+                // No micro grid, test all primitives in this macro voxel
+                for (int primIdx : macro->primitives) {
+                    auto primSi = primitives[primIdx].Intersect(ray, tMax);
+                    if (primSi) {
+                        si = primSi;
+                        tMax = si->tHit;
+                        hitSomething = true;
+                    }
+                }
+            }
+        }
+
+        if (hitSomething && tMax < tNext[stepAxis]) {
+            break;
+        }
+
+        pos[stepAxis] += step[stepAxis];
+        if (pos[stepAxis] == out[stepAxis]) {
+            break;
+        }
+        currentT = tNext[stepAxis];
+        tNext[stepAxis] += tDelta[stepAxis];
+    }
+
+    twoLevelVoxelsVisited += voxelsVisited;
+    return si;
+}
+
+bool TwoLevelGridAggregate::IntersectP(const Ray &ray, Float tMax) const {
+    // Check if the ray intersects the grid's bounding box
+    Float rayTMin, rayTMax;
+    if (!bounds.IntersectP(ray.o, ray.d, tMax, &rayTMin, &rayTMax)) {
+        return false;
+    }
+
+    // Initialize 3D DDA traversal variables for macro grid
+    Vector3f invDir(1.f / ray.d.x, 1.f / ray.d.y, 1.f / ray.d.z);
+    int pos[3], step[3], out[3];
+    Float tNext[3], tDelta[3];
+
+    // Determine if the ray origin is inside the grid
+    bool inside = (ray.o.x >= bounds.pMin.x && ray.o.x <= bounds.pMax.x &&
+                   ray.o.y >= bounds.pMin.y && ray.o.y <= bounds.pMax.y &&
+                   ray.o.z >= bounds.pMin.z && ray.o.z <= bounds.pMax.z);
+    
+    Point3f gridIntersect = inside ? ray.o : ray(rayTMin);
+
+    // Voxel stepping for each axis in macro grid
+    for (int axis = 0; axis < 3; ++axis) {
+        pos[axis] = posToVoxel(gridIntersect, axis, bounds, invWidth, nVoxels);
+        if (ray.d[axis] >= 0) {
+            tNext[axis] = rayTMin + (voxelToPos(pos[axis] + 1, axis, bounds, width) - gridIntersect[axis]) * invDir[axis];
+            tDelta[axis] = width[axis] * invDir[axis];
+            step[axis] = 1;
+            out[axis] = nVoxels[axis];
+        } 
+        else {
+            tNext[axis] = rayTMin + (gridIntersect[axis] - voxelToPos(pos[axis], axis, bounds, width)) * -invDir[axis];
+            tDelta[axis] = width[axis] * -invDir[axis];
+            step[axis] = -1;
+            out[axis] = -1;
+        }
+    }
+
+    Float currentT = rayTMin;
+
+    int voxelsVisited = 0;
+    while (true) {
+        ++voxelsVisited;
+        MacroVoxel *macro = macroVoxels[offset(pos[0], pos[1], pos[2], nVoxels)];
+        int stepAxis = (tNext[0] < tNext[1]) ? ((tNext[0] < tNext[2]) ? 0 : 2) : ((tNext[1] < tNext[2]) ? 1 : 2);
+        Float tExit = std::min(tMax, tNext[stepAxis]);
+        
+        // Nested traversal into micro grid if it exists, otherwise test primitives in macro voxel
+        if (macro) {
+            if (macro->microGrid) {
+                MicroGrid *micro = macro->microGrid;
+                Float mRayTMin, mRayTMax;
+                if (micro->bounds.IntersectP(ray.o, ray.d, tExit, &mRayTMin, &mRayTMax)) {
+                    mRayTMin = std::max(currentT, mRayTMin);
+                    
+                    if (mRayTMin <= mRayTMax) {
+                        int mPos[3], mStep[3], mOut[3];
+                        Float mTNext[3], mTDelta[3];
+                        Point3f mGridIntersect = ray(mRayTMin);
+
+                        for (int axis = 0; axis < 3; ++axis) {
+                            mPos[axis] = posToVoxel(mGridIntersect, axis, micro->bounds, micro->invWidth, micro->nVoxels);
+                            if (ray.d[axis] >= 0) {
+                                mTNext[axis] = mRayTMin + (voxelToPos(mPos[axis] + 1, axis, micro->bounds, micro->width) - mGridIntersect[axis]) * invDir[axis];
+                                mTDelta[axis] = micro->width[axis] * invDir[axis];
+                                mStep[axis] = 1;
+                                mOut[axis] = micro->nVoxels[axis];
+                            } 
+                            else {
+                                mTNext[axis] = mRayTMin + (mGridIntersect[axis] - voxelToPos(mPos[axis], axis, micro->bounds, micro->width)) * -invDir[axis];
+                                mTDelta[axis] = micro->width[axis] * -invDir[axis];
+                                mStep[axis] = -1;
+                                mOut[axis] = -1;
+                            }
+                        }
+
+                        while (true) {
+                            ++voxelsVisited;
+                            Voxel *microVoxel = micro->voxels[offset(mPos[0], mPos[1], mPos[2], micro->nVoxels)];
+                            
+                            if (microVoxel) {
+                                for (int primIdx : microVoxel->primitives) {
+                                    if (primitives[primIdx].IntersectP(ray, tMax)) {
+                                        twoLevelVoxelsVisited += voxelsVisited;
+                                        return true;
+                                    }
+                                }
+                            }
+
+                            int mStepAxis = (mTNext[0] < mTNext[1]) ? ((mTNext[0] < mTNext[2]) ? 0 : 2) : ((mTNext[1] < mTNext[2]) ? 1 : 2);
+                            mPos[mStepAxis] += mStep[mStepAxis];
+                            
+                            if (mPos[mStepAxis] == mOut[mStepAxis] || mTNext[mStepAxis] > tExit) {
+                                break;
+                            }
+                            mTNext[mStepAxis] += mTDelta[mStepAxis];
+                        }
+                    }
+                }
+            } 
+            else {
+                for (int primIdx : macro->primitives) {
+                    if (primitives[primIdx].IntersectP(ray, tMax)) {
+                        twoLevelVoxelsVisited += voxelsVisited;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        pos[stepAxis] += step[stepAxis];
+        if (pos[stepAxis] == out[stepAxis]) {
+            break;
+        }
+        currentT = tNext[stepAxis];
+        tNext[stepAxis] += tDelta[stepAxis];
+    }
+
+    twoLevelVoxelsVisited += voxelsVisited;
+    return false;
+}
+
+int TwoLevelGridAggregate::posToVoxel(const Point3f &p, int axis, const Bounds3f &b, const Vector3f &invW, const int nVox[3]) const {
+    int v = int((p[axis] - b.pMin[axis]) * invW[axis]);
+    return std::clamp(v, 0, nVox[axis] - 1);
+}
+
+Float TwoLevelGridAggregate::voxelToPos(int p, int axis, const Bounds3f &b, const Vector3f &w) const {
+    return b.pMin[axis] + p * w[axis];
+}
+
+inline int TwoLevelGridAggregate::offset(int x, int y, int z, const int nVox[3]) const {
+    return z*nVox[0]*nVox[1] + y*nVox[0] + x;
+}
+
+TwoLevelGridAggregate *TwoLevelGridAggregate::Create(std::vector<Primitive> prims,
+                                                     const ParameterDictionary &parameters) {
+    int maxPrimsPerVoxel = parameters.GetOneInt("maxprims", 8);
+    return new TwoLevelGridAggregate(std::move(prims), maxPrimsPerVoxel);
+}
+
 Primitive CreateAccelerator(const std::string &name, std::vector<Primitive> prims,
                             const ParameterDictionary &parameters) {
     Primitive accel = nullptr;
@@ -1167,6 +1897,10 @@ Primitive CreateAccelerator(const std::string &name, std::vector<Primitive> prim
         accel = BVHAggregate::Create(std::move(prims), parameters);
     else if (name == "kdtree")
         accel = KdTreeAggregate::Create(std::move(prims), parameters);
+    else if (name == "uniformgrid")
+        accel = UniformGridAggregate::Create(std::move(prims), parameters);
+    else if (name == "twolevelgrid")
+        accel = TwoLevelGridAggregate::Create(std::move(prims), parameters);
     else
         ErrorExit("%s: accelerator type unknown.", name);
 

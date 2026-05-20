@@ -104,6 +104,72 @@ class KdTreeAggregate {
     Bounds3f bounds;
 };
 
+struct Voxel;
+
+// UniformGridAggregate Definition
+class UniformGridAggregate {
+  public:
+    // UniformGridAggregate Public Methods
+    UniformGridAggregate(std::vector<Primitive> p);
+    static UniformGridAggregate *Create(std::vector<Primitive> prims,
+                                        const ParameterDictionary &parameters);
+    ~UniformGridAggregate();
+    
+    Bounds3f Bounds() const { return bounds; }
+    pstd::optional<ShapeIntersection> Intersect(const Ray &ray, Float tMax) const;
+    bool IntersectP(const Ray &ray, Float tMax) const;
+  
+  private:
+    // UniformGridAggregate Private Methods
+    int posToVoxel(const Point3f &p, int axis) const;
+    Float voxelToPos(int p, int axis) const;
+    inline int offset(int x, int y, int z) const;
+
+    // UniformGridAggregate Private Members
+    std::vector<Primitive> primitives;
+    Bounds3f bounds;
+
+    // Grid resolution & dimensions
+    int nVoxels[3];
+    Vector3f width, invWidth;
+
+    // 1D arrays of Voxel pointers (flattened from 3D grid)
+    Voxel **voxels = nullptr;
+};
+
+struct MicroGrid;
+struct MacroVoxel;
+
+// TwoLevelGridAggregate Definition
+class TwoLevelGridAggregate {
+  public:
+    // TwoLevelGridAggregate Public Methods
+    TwoLevelGridAggregate(std::vector<Primitive> p, int maxPrimsPerVoxel = 8);
+    static TwoLevelGridAggregate *Create(std::vector<Primitive> prims,
+                                         const ParameterDictionary &parameters);
+    ~TwoLevelGridAggregate();
+
+    Bounds3f Bounds() const { return bounds; }
+    pstd::optional<ShapeIntersection> Intersect(const Ray &ray, Float tMax) const;
+    bool IntersectP(const Ray &ray, Float tMax) const;
+
+  private:
+    // TwoLevelGridAggregate Private Methods
+    int posToVoxel(const Point3f &p, int axis, const Bounds3f &b, const Vector3f &invW, const int nVox[3]) const;
+    Float voxelToPos(int p, int axis, const Bounds3f &b, const Vector3f &w) const;
+    inline int offset(int x, int y, int z, const int nVox[3]) const;
+
+    // TwoLevelGridAggregate Private Members
+    std::vector<Primitive> primitives;
+    Bounds3f bounds;
+    int maxPrimsPerVoxel;
+
+    // Macro-grid properties
+    int nVoxels[3];
+    Vector3f width, invWidth;
+    MacroVoxel **macroVoxels = nullptr;
+};
+
 }  // namespace pbrt
 
 #endif  // PBRT_CPU_AGGREGATES_H
