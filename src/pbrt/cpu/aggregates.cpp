@@ -15,6 +15,8 @@
 #include <pbrt/util/print.h>
 #include <pbrt/util/stats.h>
 
+#include <chrono>
+#include <iostream>
 #include <algorithm>
 #include <tuple>
 
@@ -142,6 +144,9 @@ BVHAggregate::BVHAggregate(std::vector<Primitive> prims, int maxPrimsInNode,
     : maxPrimsInNode(std::min(255, maxPrimsInNode)),
       primitives(std::move(prims)),
       splitMethod(splitMethod) {
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     CHECK(!primitives.empty());
     // Build BVH from _primitives_
     // Initialize _bvhPrimitives_ array for primitives
@@ -187,6 +192,10 @@ BVHAggregate::BVHAggregate(std::vector<Primitive> prims, int maxPrimsInNode,
     int offset = 0;
     flattenBVH(root, &offset);
     CHECK_EQ(totalNodes.load(), offset);
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = endTime - startTime;
+    std::cout << "[INFO] BVH Construction Time: " << elapsed.count() << " seconds.\n";
 }
 
 BVHBuildNode *BVHAggregate::buildRecursive(ThreadLocal<Allocator> &threadAllocators,
@@ -804,6 +813,9 @@ KdTreeAggregate::KdTreeAggregate(std::vector<Primitive> p, int isectCost,
       maxPrims(maxPrims),
       emptyBonus(emptyBonus),
       primitives(std::move(p)) {
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // Build kd-tree aggregate
     nextFreeNode = nAllocedNodes = 0;
     if (maxDepth <= 0)
@@ -838,6 +850,10 @@ KdTreeAggregate::KdTreeAggregate(std::vector<Primitive> p, int isectCost,
                    primitives.size() * sizeof(Primitive) +
                    nAllocedNodes * sizeof(KdTreeNode) +
                    primitiveIndices.capacity() * sizeof(int);
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = endTime - startTime;
+    std::cout << "[INFO] KD-Tree Construction Time: " << elapsed.count() << " seconds.\n";
 }
 
 void KdTreeNode::InitLeaf(pstd::span<const int> primNums,
@@ -1183,6 +1199,9 @@ STAT_PIXEL_COUNTER("Uniform Grid/Voxels visited", gridVoxelsVisited);
 
 UniformGridAggregate::UniformGridAggregate(std::vector<Primitive> p)
     : primitives(std::move(p)) {
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // Compute bounds
     for (const auto &prim : primitives) {
         bounds = Union(bounds, prim.Bounds());
@@ -1242,6 +1261,10 @@ UniformGridAggregate::UniformGridAggregate(std::vector<Primitive> p)
         }
     }
     gridBytes += bytes;
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = endTime - startTime;
+    std::cout << "[INFO] Uniform Grid Construction Time: " << elapsed.count() << " seconds.\n";
 }
 
 UniformGridAggregate::~UniformGridAggregate() {
@@ -1463,6 +1486,9 @@ STAT_PIXEL_COUNTER("Two-Level Grid/Voxels visited", twoLevelVoxelsVisited);
 
 TwoLevelGridAggregate::TwoLevelGridAggregate(std::vector<Primitive> p, int maxPrimsPerVoxel)
     : primitives(std::move(p)), maxPrimsPerVoxel(maxPrimsPerVoxel) {
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // Compute bounds
     for (const auto &prim : primitives) {
         bounds = Union(bounds, prim.Bounds());
@@ -1598,6 +1624,10 @@ TwoLevelGridAggregate::TwoLevelGridAggregate(std::vector<Primitive> p, int maxPr
         }
     }
     twoLevelGridBytes += bytes;
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = endTime - startTime;
+    std::cout << "[INFO] Two-Level Grid Construction Time: " << elapsed.count() << " seconds.\n";
 }
 
 TwoLevelGridAggregate::~TwoLevelGridAggregate() {
