@@ -1455,7 +1455,7 @@ FloatTexture FloatTexture::Create(const std::string &name,
         if (filename.empty()) {
             ErrorExit(loc, "OSL texture requires a \"filename\" string parameter.");
         }
-        tex = alloc.new_object<OSLFloatTexture>(filename);
+        tex = alloc.new_object<OSLFloatTexture>(filename, parameters);
     } 
     else if (name == "constant")
         tex = FloatConstantTexture::Create(renderFromTexture, parameters, loc, alloc);

@@ -900,7 +900,9 @@ if (WIN32)
   set_target_properties (pbrt_lib PROPERTIES OUTPUT_NAME libpbrt)
 endif()
 
-find_library(OSL_LIB oslexec HINTS /usr/local/lib /usr/lib)
+find_library(OSL_EXEC_LIB oslexec HINTS /usr/local/lib /usr/lib)
+find_library(OSL_COMP_LIB oslcomp HINTS /usr/local/lib /usr/lib)
+find_library(OSL_QUERY_LIB oslquery HINTS /usr/local/lib /usr/lib)
 find_library(OIIO_LIB OpenImageIO HINTS /usr/local/lib /usr/lib)
 find_library(OIIO_UTIL_LIB OpenImageIO_Util HINTS /usr/local/lib /usr/lib)
 
@@ -917,7 +919,9 @@ set (ALL_PBRT_LIBS
   glfw
   glad
   OpenGL::GL
-  ${OSL_LIB}
+  ${OSL_EXEC_LIB}
+  ${OSL_COMP_LIB}
+  ${OSL_QUERY_LIB}
   ${OIIO_LIB}
   ${OIIO_UTIL_LIB})
 

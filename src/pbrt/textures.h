@@ -287,7 +287,7 @@ struct OSLTextureState;
 class OSLFloatTexture {
   public:
     OSLFloatTexture() = default; 
-    OSLFloatTexture(const std::string &shaderName);
+    OSLFloatTexture(const std::string &shaderName, const TextureParameterDictionary &parameters);
 
     PBRT_CPU_GPU
     Float Evaluate(TextureEvalContext ctx) const

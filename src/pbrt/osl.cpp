@@ -6,6 +6,7 @@
 // Hardware intrinsics must load before OSL
 #include <immintrin.h>
 #include <OSL/oslexec.h>
+#include <OSL/oslquery.h>
 #include <OSL/rendererservices.h>
 #include <OpenImageIO/errorhandler.h>
 
@@ -74,18 +75,73 @@ struct OSLTextureState {
     const OSL::ShaderSymbol* coutSymbol = nullptr;  // Cache the symbol
 };
 
-OSLFloatTexture::OSLFloatTexture(const std::string& shaderName) {
+OSLFloatTexture::OSLFloatTexture(const std::string& shaderName, const TextureParameterDictionary &parameters) {
     state = new OSLTextureState();
     if (!shadingSystem) return;
 
     // Turn off OSL's optimizer entirely
-    // This guarantees OSL will not delete our variables behind our backs.
+    // This guarantees OSL will not delete our variables behind our backs
     int opt = 0;
     shadingSystem->attribute("optimize", opt);
 
     state->shaderGroup = shadingSystem->ShaderGroupBegin(shaderName);
-    
-    bool shaderSuccess = shadingSystem->Shader(*(state->shaderGroup), "surface", shaderName, "my_layer");
+
+    std::string searchPath = ".";
+    if (const char* envPath = std::getenv("OSL_SHADER_PATH")) {
+    #ifdef _WIN32
+        searchPath += std::string(";") + envPath;
+    #else
+        searchPath += std::string(":") + envPath;
+    #endif
+    }
+
+    OSL::OSLQuery query(shaderName, searchPath);
+    std::string queryErr = query.geterror();
+
+    if (queryErr.empty()) {
+        for (size_t i = 0; i < query.nparams(); ++i) {
+            const OSL::OSLQuery::Parameter* param = query.getparam(i);
+            
+            if (!param || param->isoutput) continue; 
+
+            std::string pName = param->name.string();
+
+            // --- A. FLOATS ---
+            if (param->type == OSL::TypeFloat) {
+                float defVal = param->fdefault.empty() ? 0.0f : param->fdefault[0];
+                float val = (float)parameters.GetOneFloat(pName, defVal);
+                shadingSystem->Parameter(*(state->shaderGroup), param->name, OSL::TypeFloat, &val);
+            }
+            // --- B. INTEGERS ---
+            else if (param->type == OSL::TypeInt) {
+                int defVal = param->idefault.empty() ? 0 : param->idefault[0];
+                int val = parameters.GetOneInt(pName, defVal);
+                shadingSystem->Parameter(*(state->shaderGroup), param->name, OSL::TypeInt, &val);
+            }
+            // --- C. 3D TYPES (Vectors, Points, Normals, Colors) ---
+            else if (param->type.basetype == OSL::TypeDesc::FLOAT && param->type.aggregate == OSL::TypeDesc::VEC3) {
+                float defX = param->fdefault.size() > 0 ? param->fdefault[0] : 0.0f;
+                float defY = param->fdefault.size() > 1 ? param->fdefault[1] : 0.0f;
+                float defZ = param->fdefault.size() > 2 ? param->fdefault[2] : 0.0f;
+
+                Vector3f val = parameters.GetOneVector3f(pName, Vector3f(defX, defY, defZ));
+                float data[3] = { (float)val.x, (float)val.y, (float)val.z };
+                shadingSystem->Parameter(*(state->shaderGroup), param->name, param->type, data);
+            }
+            // --- D. STRINGS ---
+            else if (param->type == OSL::TypeString) {
+                std::string defVal = param->sdefault.empty() ? "" : param->sdefault[0].string();
+                std::string val = parameters.GetOneString(pName, defVal);
+                OSL::ustring uval(val);
+                shadingSystem->Parameter(*(state->shaderGroup), param->name, OSL::TypeString, &uval);
+            }
+        }
+    } else {
+        fprintf(stderr, "[OSL WARNING] OSLQuery could not read parameters for '%s'. Reason: %s\n", 
+               shaderName.c_str(), queryErr.c_str());
+    }
+
+    bool shaderSuccess = shadingSystem->Shader(*(state->shaderGroup), "surface", shaderName.c_str(), "my_layer");
     if (!shaderSuccess) {
         fprintf(stderr, "\n[OSL ERROR] Failed to load '%s.oso'!\n\n", shaderName.c_str());
     }
@@ -102,7 +158,7 @@ OSLFloatTexture::OSLFloatTexture(const std::string& shaderName) {
     }
 
     // Force JIT compilation before lookup
-    // Without this, the final symbol table doesn't exist yet, and find_symbol will fail.
+    // Without this, the final symbol table doesn't exist yet, and find_symbol will fail
     shadingSystem->optimize_all_groups();
 
     // Symbol lookup

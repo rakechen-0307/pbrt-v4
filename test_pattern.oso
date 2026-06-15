@@ -2,10 +2,31 @@ OpenShadingLanguage 1.00
 # Compiled by oslc 1.12.14.0
 # options: 
 shader test_pattern
-oparam	float	Cout	1		%read{2147483647,-1} %write{0,0}
+param	float	scale	10		%read{0,2} %write{2147483647,-1}
+param	int	iterations	1		%read{5,5} %write{2147483647,-1}
+oparam	float	Cout	0		%read{7,7} %write{4,7}
 global	float	u	%read{0,0} %write{2147483647,-1}
+global	float	v	%read{2,2} %write{2147483647,-1}
+temp	float	$tmp1	%read{4,4} %write{1,1}
+temp	float	$tmp2	%read{1,1} %write{0,0}
+temp	float	$tmp3	%read{4,4} %write{3,3}
+temp	float	$tmp4	%read{3,3} %write{2,2}
+const	int	$const1	1		%read{5,5} %write{2147483647,-1}
+temp	int	$tmp5	%read{6,6} %write{5,5}
+const	float	$const2	0.5		%read{7,7} %write{2147483647,-1}
 code ___main___
-# test_pattern.osl:4
-#     Cout = u; 
-	assign		Cout u 	%filename{"test_pattern.osl"} %line{4} %argrw{"wr"}
+# test_pattern.osl:7
+#     Cout = sin(u * scale) * cos(v * scale);
+	mul		$tmp2 u scale 	%filename{"test_pattern.osl"} %line{7} %argrw{"wrr"}
+	sin		$tmp1 $tmp2 	%argrw{"wr"}
+	mul		$tmp4 v scale 	%argrw{"wrr"}
+	cos		$tmp3 $tmp4 	%argrw{"wr"}
+	mul		Cout $tmp1 $tmp3 	%argrw{"wrr"}
+# test_pattern.osl:9
+#     if (iterations > 1) {
+	gt		$tmp5 iterations $const1 	%line{9} %argrw{"wrr"}
+	if		$tmp5 8 8 	%argrw{"r"}
+# test_pattern.osl:10
+#         Cout *= 0.5; 
+	mul		Cout Cout $const2 	%line{10} %argrw{"wrr"}
 	end
