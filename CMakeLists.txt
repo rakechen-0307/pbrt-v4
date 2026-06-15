@@ -555,6 +555,8 @@ set (PBRT_SOURCE
   src/pbrt/textures.cpp
 
   src/pbrt/cmd/pspec_gpu.cpp
+
+  src/pbrt/osl.cpp
   )
   
 if (MSVC)
@@ -741,6 +743,8 @@ if (PBRT_CUDA_ENABLED)
    src/pbrt/samplers.cpp
    src/pbrt/shapes.cpp
    src/pbrt/textures.cpp
+  
+   src/pbrt/osl.cpp
 
    src/pbrt/util/bluenoise.cpp
    src/pbrt/util/check.cpp
@@ -896,6 +900,10 @@ if (WIN32)
   set_target_properties (pbrt_lib PROPERTIES OUTPUT_NAME libpbrt)
 endif()
 
+find_library(OSL_LIB oslexec HINTS /usr/local/lib /usr/lib)
+find_library(OIIO_LIB OpenImageIO HINTS /usr/local/lib /usr/lib)
+find_library(OIIO_UTIL_LIB OpenImageIO_Util HINTS /usr/local/lib /usr/lib)
+
 set (ALL_PBRT_LIBS
   pbrt_lib
   ${CMAKE_THREAD_LIBS_INIT}
@@ -908,7 +916,10 @@ set (ALL_PBRT_LIBS
   utf8proc
   glfw
   glad
-  OpenGL::GL)
+  OpenGL::GL
+  ${OSL_LIB}
+  ${OIIO_LIB}
+  ${OIIO_UTIL_LIB})
 
 if (PBRT_CUDA_ENABLED)
   set_property (TARGET pbrt_lib PROPERTY CUDA_SEPARABLE_COMPILATION ON)
@@ -1136,3 +1147,5 @@ install (TARGETS
   DESTINATION
   lib
   )
+
+set_source_files_properties(src/pbrt/osl.cpp PROPERTIES LANGUAGE CXX COMPILE_FLAGS "-std=c++20")

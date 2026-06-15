@@ -1449,7 +1449,15 @@ FloatTexture FloatTexture::Create(const std::string &name,
                                   const TextureParameterDictionary &parameters,
                                   const FileLoc *loc, Allocator alloc, bool gpu) {
     FloatTexture tex;
-    if (name == "constant")
+    
+    if (name == "osl") {
+        std::string filename = parameters.GetOneString("filename", "");
+        if (filename.empty()) {
+            ErrorExit(loc, "OSL texture requires a \"filename\" string parameter.");
+        }
+        tex = alloc.new_object<OSLFloatTexture>(filename);
+    } 
+    else if (name == "constant")
         tex = FloatConstantTexture::Create(renderFromTexture, parameters, loc, alloc);
     else if (name == "scale")
         tex = FloatScaledTexture::Create(renderFromTexture, parameters, loc, alloc);

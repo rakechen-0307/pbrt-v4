@@ -282,6 +282,28 @@ class FloatConstantTexture {
     Float value;
 };
 
+struct OSLTextureState; 
+
+class OSLFloatTexture {
+  public:
+    OSLFloatTexture() = default; 
+    OSLFloatTexture(const std::string &shaderName);
+
+    PBRT_CPU_GPU
+    Float Evaluate(TextureEvalContext ctx) const
+
+#if defined(__CUDA_ARCH__)
+    { return 0.f; }
+#else
+    ;
+#endif
+
+    std::string ToString() const; 
+
+  private:
+    OSLTextureState *state = nullptr;
+};
+
 // SpectrumConstantTexture Definition
 class SpectrumConstantTexture {
   public:
@@ -1164,7 +1186,8 @@ class BasicTextureEvaluator {
         // Return _false_ if any _FloatTexture_s cannot be evaluated
         for (FloatTexture f : ftex)
             if (f && !f.Is<FloatConstantTexture>() && !f.Is<FloatImageTexture>() &&
-                !f.Is<GPUFloatPtexTexture>() && !f.Is<GPUFloatImageTexture>())
+                !f.Is<GPUFloatPtexTexture>() && !f.Is<GPUFloatImageTexture>() && 
+                !f.Is<OSLFloatTexture>())
                 return false;
 
         // Return _false_ if any _SpectrumTexture_s cannot be evaluated
@@ -1186,6 +1209,8 @@ class BasicTextureEvaluator {
             return tex.Cast<GPUFloatImageTexture>()->Evaluate(ctx);
         else if (tex.Is<GPUFloatPtexTexture>())
             return tex.Cast<GPUFloatPtexTexture>()->Evaluate(ctx);
+        else if (tex.Is<OSLFloatTexture>())
+            return tex.Cast<OSLFloatTexture>()->Evaluate(ctx);
         else {
             if (tex)
                 LOG_FATAL("BasicTextureEvaluator::operator() called with %s", tex);

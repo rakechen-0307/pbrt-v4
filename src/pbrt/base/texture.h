@@ -30,14 +30,16 @@ class FloatScaledTexture;
 class WindyTexture;
 class WrinkledTexture;
 
+class OSLFloatTexture;
+
 // FloatTexture Definition
 class FloatTexture
     : public TaggedPointer<  // FloatTextures
           FloatImageTexture, GPUFloatImageTexture, FloatMixTexture,
           FloatDirectionMixTexture, FloatScaledTexture, FloatConstantTexture,
           FloatBilerpTexture, FloatCheckerboardTexture, FloatDotsTexture, FBmTexture,
-          FloatPtexTexture, GPUFloatPtexTexture, WindyTexture, WrinkledTexture
-
+          FloatPtexTexture, GPUFloatPtexTexture, WindyTexture, WrinkledTexture,
+          OSLFloatTexture
           > {
   public:
     // FloatTexture Interface

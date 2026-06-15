@@ -1,0 +1,5 @@
+shader test_pattern(
+    output float Cout = 1.0
+) {
+    Cout = u; 
+}

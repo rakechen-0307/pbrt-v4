@@ -1,0 +1,11 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.12.14.0
+# options: 
+shader test_pattern
+oparam	float	Cout	1		%read{2147483647,-1} %write{0,0}
+global	float	u	%read{0,0} %write{2147483647,-1}
+code ___main___
+# test_pattern.osl:4
+#     Cout = u; 
+	assign		Cout u 	%filename{"test_pattern.osl"} %line{4} %argrw{"wr"}
+	end
