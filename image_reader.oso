@@ -1,0 +1,56 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.12.14.0
+# options: 
+shader image_reader
+param	string	texname	""		%read{0,4} %write{2147483647,-1}
+param	float	scale	1		%read{2,3} %write{2147483647,-1} %derivs
+oparam	color	Cout	0 0 0		%read{2147483647,-1} %write{11,12}
+global	float	u	%read{2,2} %write{2147483647,-1} %derivs
+global	float	v	%read{3,3} %write{2147483647,-1} %derivs
+local	color	___344_raw_color	%read{5,9} %write{4,4}
+const	string	$const1	""		%read{0,0} %write{2147483647,-1}
+temp	int	$tmp1	%read{1,1} %write{0,0}
+temp	float	$tmp2	%read{4,4} %write{2,2} %derivs
+temp	float	$tmp3	%read{4,4} %write{3,3} %derivs
+const	string	$const2	"wrap"		%read{4,4} %write{2147483647,-1}
+const	string	$const3	"periodic"		%read{4,4} %write{2147483647,-1}
+temp	float	$tmp4	%read{11,11} %write{6,6}
+const	int	$const4	0		%read{5,5} %write{2147483647,-1}
+temp	float	$tmp5	%read{6,6} %write{5,5}
+const	float	$const5	2.20000005		%read{6,10} %write{2147483647,-1}
+temp	float	$tmp6	%read{11,11} %write{8,8}
+const	int	$const6	1		%read{7,7} %write{2147483647,-1}
+temp	float	$tmp7	%read{8,8} %write{7,7}
+temp	float	$tmp8	%read{11,11} %write{10,10}
+const	int	$const7	2		%read{9,9} %write{2147483647,-1}
+temp	float	$tmp9	%read{10,10} %write{9,9}
+const	color	$const8	1 0 1		%read{12,12} %write{2147483647,-1}
+code ___main___
+# image_reader.osl:6
+#     if (texname != "") {
+	neq		$tmp1 texname $const1 	%filename{"image_reader.osl"} %line{6} %argrw{"wrr"}
+	if		$tmp1 12 13 	%argrw{"r"}
+# image_reader.osl:9
+#         color raw_color = texture(texname, u * scale, v * scale, "wrap", "periodic");
+	mul		$tmp2 u scale 	%line{9} %argrw{"wrr"}
+	mul		$tmp3 v scale 	%argrw{"wrr"}
+	texture		___344_raw_color texname $tmp2 $tmp3 $const2 $const3 	%argrw{"wrrrrr"} %argderivs{2,3}
+# image_reader.osl:13
+#             pow(raw_color[0], 2.2), 
+	compref		$tmp5 ___344_raw_color $const4 	%line{13} %argrw{"wrr"}
+	pow		$tmp4 $tmp5 $const5 	%argrw{"wrr"}
+# image_reader.osl:14
+#             pow(raw_color[1], 2.2), 
+	compref		$tmp7 ___344_raw_color $const6 	%line{14} %argrw{"wrr"}
+	pow		$tmp6 $tmp7 $const5 	%argrw{"wrr"}
+# image_reader.osl:15
+#             pow(raw_color[2], 2.2)
+	compref		$tmp9 ___344_raw_color $const7 	%line{15} %argrw{"wrr"}
+	pow		$tmp8 $tmp9 $const5 	%argrw{"wrr"}
+# image_reader.osl:12
+#         Cout = color(
+	color		Cout $tmp4 $tmp6 $tmp8 	%line{12} %argrw{"wrrr"}
+# image_reader.osl:19
+#         Cout = color(1, 0, 1); 
+	assign		Cout $const8 	%line{19} %argrw{"wr"}
+	end

@@ -10,3 +10,4 @@ src/build
 # Images
 **/*.exr
 **/*.png
+**/*.jpg

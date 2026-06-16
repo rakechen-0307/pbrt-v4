@@ -8,6 +8,7 @@
 #include <OSL/oslexec.h>
 #include <OSL/oslquery.h>
 #include <OSL/rendererservices.h>
+#include <OpenImageIO/texture.h>
 #include <OpenImageIO/errorhandler.h>
 
 namespace pbrt {
@@ -32,27 +33,33 @@ public:
 // ---------------------------------------------------------
 static PbrtRendererServices* oslServices = nullptr;
 static OSL::ShadingSystem* shadingSystem = nullptr;
+static OIIO::TextureSystem* textureSystem = nullptr;
 
 void InitOSL() {
     if (!oslServices) {
         oslServices = new PbrtRendererServices();
-        static OIIO::ErrorHandler errHandler; 
-        shadingSystem = new OSL::ShadingSystem(oslServices, nullptr, &errHandler);
+        static OIIO::ErrorHandler errHandler;
+        
+        // Create OSL TextureSystem
+        // 'true' means it will be safely shared across all rendering threads
+        textureSystem = OIIO::TextureSystem::create(true);
+
+        shadingSystem = new OSL::ShadingSystem(oslServices, textureSystem, &errHandler);
         
         // Read the OSL_SHADER_PATH environment variable to set the shader search path
         // Start with the current directory as a fallback
-        std::string shaderSearchPath = ".";
-
+        std::string searchPath = ".";
         if (const char* envPath = std::getenv("OSL_SHADER_PATH")) {
         #ifdef _WIN32
-            shaderSearchPath += std::string(";") + envPath;
+            searchPath += std::string(";") + envPath;
         #else
-            shaderSearchPath += std::string(":") + envPath;
+            searchPath += std::string(":") + envPath;
         #endif
         }
-        
-        shadingSystem->attribute("searchpath:shader", shaderSearchPath);
-        printf("[OSL] Shader search path configured as: %s\n", shaderSearchPath.c_str());
+
+        shadingSystem->attribute("searchpath:shader", searchPath);
+        textureSystem->attribute("searchpath", searchPath);
+        printf("[OSL] Shader and Texture search path configured as: %s\n", searchPath.c_str());
     }
 }
 
@@ -60,6 +67,10 @@ void CleanupOSL() {
     if (shadingSystem) {
         delete shadingSystem;
         shadingSystem = nullptr;
+    }
+    if (textureSystem) {
+        OIIO::TextureSystem::destroy(textureSystem);
+        textureSystem = nullptr;
     }
     if (oslServices) {
         delete oslServices;
@@ -189,6 +200,11 @@ Float OSLFloatTexture::Evaluate(TextureEvalContext ctx) const {
     sg.dPdy = OSL::Vec3(ctx.dpdy.x, ctx.dpdy.y, ctx.dpdy.z);
     sg.u = ctx.uv[0];
     sg.v = ctx.uv[1];
+
+    sg.dudx = ctx.dudx;
+    sg.dudy = ctx.dudy;
+    sg.dvdx = ctx.dvdx;
+    sg.dvdy = ctx.dvdy;
 
     thread_local OSL::PerThreadInfo* threadInfo = nullptr;
     if (!threadInfo) {
@@ -326,6 +342,11 @@ SampledSpectrum OSLSpectrumTexture::Evaluate(TextureEvalContext ctx, SampledWave
     sg.dPdy = OSL::Vec3(ctx.dpdy.x, ctx.dpdy.y, ctx.dpdy.z);
     sg.u = ctx.uv[0];
     sg.v = ctx.uv[1];
+
+    sg.dudx = ctx.dudx;
+    sg.dudy = ctx.dudy;
+    sg.dvdx = ctx.dvdx;
+    sg.dvdy = ctx.dvdy;
 
     thread_local OSL::PerThreadInfo* threadInfo = nullptr;
     if (!threadInfo) threadInfo = shadingSystem->create_thread_info();
