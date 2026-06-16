@@ -325,6 +325,27 @@ class SpectrumConstantTexture {
     Spectrum value;
 };
 
+class OSLSpectrumTexture {
+  public:
+    OSLSpectrumTexture() = default;
+    OSLSpectrumTexture(const std::string &shaderName, const TextureParameterDictionary &parameters, SpectrumType spectrumType);
+
+    PBRT_CPU_GPU
+    SampledSpectrum Evaluate(TextureEvalContext ctx, SampledWavelengths lambda) const
+
+#if defined(__CUDA_ARCH__)
+    { return SampledSpectrum(0.f); }
+#else
+    ;
+#endif
+
+    std::string ToString() const;
+
+  private:
+    OSLTextureState *state = nullptr;
+    SpectrumType spectrumType;
+};
+
 // FloatBilerpTexture Definition
 class FloatBilerpTexture {
   public:
@@ -1193,7 +1214,8 @@ class BasicTextureEvaluator {
         // Return _false_ if any _SpectrumTexture_s cannot be evaluated
         for (SpectrumTexture s : stex)
             if (s && !s.Is<SpectrumConstantTexture>() && !s.Is<SpectrumImageTexture>() &&
-                !s.Is<GPUSpectrumPtexTexture>() && !s.Is<GPUSpectrumImageTexture>())
+                !s.Is<GPUSpectrumPtexTexture>() && !s.Is<GPUSpectrumImageTexture>() &&
+                !s.Is<OSLSpectrumTexture>())
                 return false;
 
         return true;
@@ -1229,6 +1251,8 @@ class BasicTextureEvaluator {
             return tex.Cast<GPUSpectrumImageTexture>()->Evaluate(ctx, lambda);
         else if (tex.Is<GPUSpectrumPtexTexture>())
             return tex.Cast<GPUSpectrumPtexTexture>()->Evaluate(ctx, lambda);
+        else if (tex.Is<OSLSpectrumTexture>())
+            return tex.Cast<OSLSpectrumTexture>()->Evaluate(ctx, lambda);
         else {
             if (tex)
                 LOG_FATAL("BasicTextureEvaluator::operator() called with %s", tex);

@@ -6,7 +6,7 @@ Camera "perspective" "float fov" [40]
 
 Sampler "halton" "integer pixelsamples" [64]
 Integrator "path"
-Film "rgb" "string filename" ["osl_output.png"] 
+Film "rgb" "string filename" ["osl_spectrum.png"] 
     "integer xresolution" [800] "integer yresolution" [800]
 
 WorldBegin
@@ -16,21 +16,13 @@ LightSource "distant" "point3 from" [0 5 -5] "point3 to" [0 0 0]
     "rgb L" [5 5 5]
 
 # ----------------------------------------------------
-# 1. Evaluate your OSL noise as a Float
+# 1. Evaluate your OSL noise as a Spectrum
 # ----------------------------------------------------
-Texture "my_noise_float" "float" "osl"
-    "string filename" "test_pattern"
+Texture "my_noise_color" "spectrum" "osl"
+    "string filename" "spectrum_pattern"
     "float scale" [ 50.0 ]
-    "integer iterations" [ 2 ]
 
-# ----------------------------------------------------
-# 2. Wrap it into a Spectrum using PBRT's "scale" node
-# ----------------------------------------------------
-Texture "my_noise_color" "spectrum" "scale"
-    "texture scale" [ "my_noise_float" ]
-    "rgb tex" [ 1 1 1 ]  # We scale pure white by the noise value
-
-# Apply the spectrum version to the diffuse material
+# Plug it directly into the diffuse material
 Material "diffuse" "texture reflectance" [ "my_noise_color" ]
 
 # Draw a sphere

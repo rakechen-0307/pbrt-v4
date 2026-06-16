@@ -70,14 +70,16 @@ class SpectrumPtexTexture;
 class GPUSpectrumPtexTexture;
 class SpectrumScaledTexture;
 
+class OSLSpectrumTexture;
+
 // SpectrumTexture Definition
 class SpectrumTexture
     : public TaggedPointer<  // SpectrumTextures
           SpectrumImageTexture, GPUSpectrumImageTexture, SpectrumMixTexture,
           SpectrumDirectionMixTexture, SpectrumScaledTexture, SpectrumConstantTexture,
           SpectrumBilerpTexture, SpectrumCheckerboardTexture, MarbleTexture,
-          SpectrumDotsTexture, SpectrumPtexTexture, GPUSpectrumPtexTexture
-
+          SpectrumDotsTexture, SpectrumPtexTexture, GPUSpectrumPtexTexture,
+          OSLSpectrumTexture
           > {
   public:
     // SpectrumTexture Interface

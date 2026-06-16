@@ -1505,7 +1505,15 @@ SpectrumTexture SpectrumTexture::Create(const std::string &name,
                                         SpectrumType spectrumType, const FileLoc *loc,
                                         Allocator alloc, bool gpu) {
     SpectrumTexture tex;
-    if (name == "constant")
+
+    if (name == "osl") {
+        std::string filename = parameters.GetOneString("filename", "");
+        if (filename.empty()) {
+            ErrorExit(loc, "OSL texture requires a \"filename\" string parameter.");
+        }
+        tex = alloc.new_object<OSLSpectrumTexture>(filename, parameters, spectrumType);
+    }
+    else if (name == "constant")
         tex = SpectrumConstantTexture::Create(renderFromTexture, parameters, spectrumType,
                                               loc, alloc);
     else if (name == "scale")

@@ -1,4 +1,4 @@
-shader test_pattern(
+shader float_pattern(
     float scale = 10.0,      // Parameter 1
     int iterations = 1,      // Parameter 2
     output float Cout = 0.0
