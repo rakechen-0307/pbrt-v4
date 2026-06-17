@@ -898,7 +898,7 @@ struct OSLTextureState;
 
 class OSLMaterial {
   public:
-    using BxDF = DiffuseBxDF;
+    using BxDF = OSLBxDF;
     using BSSRDF = void;
 
     OSLMaterial(const std::string &shaderName, const TextureParameterDictionary &parameters);
@@ -916,11 +916,11 @@ class OSLMaterial {
 
     // This gets executed per-ray to evaluate the OSL Shader
     template <typename TextureEvaluator>
-    PBRT_CPU_GPU DiffuseBxDF GetBxDF(TextureEvaluator texEval, MaterialEvalContext ctx,
-                                     SampledWavelengths &lambda) const
+    PBRT_CPU_GPU OSLBxDF GetBxDF(TextureEvaluator texEval, MaterialEvalContext ctx,
+                                 SampledWavelengths &lambda) const
 
 #if defined(__CUDA_ARCH__)
-    { return DiffuseBxDF(SampledSpectrum(0.f)); }
+    { return OSLBxDF(); }
 #else
     ;
 #endif

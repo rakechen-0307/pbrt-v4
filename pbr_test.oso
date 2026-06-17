@@ -1,0 +1,107 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.12.14.0
+# options: 
+surface pbr_test
+param	color	base_color	0.800000012 0.100000001 0.100000001		%read{20,22} %write{2147483647,-1}
+param	float	roughness	0.100000001		%read{21,21} %write{2147483647,-1}
+param	float	metallic	0		%read{25,25} %write{2147483647,-1}
+param	float	ior	1.5		%read{10,23} %write{2147483647,-1}
+global	vector	I	%read{5,5} %write{2147483647,-1}
+global	normal	N	%read{5,23} %write{2147483647,-1}
+global	vector	dPdu	%read{0,3} %write{2147483647,-1}
+global	closure color	Ci	%read{2147483647,-1} %write{27,31}
+local	vector	U	%read{21,23} %write{3,4}
+local	float	cosTheta	%read{15,15} %write{9,9}
+local	float	f0	%read{14,18} %write{13,13}
+local	float	Fr	%read{28,30} %write{18,18}
+local	closure color	diffuse_comp	%read{29,29} %write{20,20}
+local	closure color	metal_comp	%read{27,27} %write{22,22}
+local	closure color	coat_comp	%read{30,30} %write{24,24}
+temp	float	$tmp1	%read{1,1} %write{0,0}
+const	float	$const1	9.99999975e-05		%read{1,1} %write{2147483647,-1}
+temp	int	$tmp2	%read{2,2} %write{1,1}
+const	vector	$const2	1 0 0		%read{4,4} %write{2147483647,-1}
+temp	float	$tmp3	%read{8,8} %write{6,6}
+temp	float	$tmp4	%read{6,6} %write{5,5}
+const	float	$const3	0		%read{9,9} %write{2147483647,-1}
+const	float	$const4	1		%read{8,28} %write{2147483647,-1}
+const	string	$const5	"clamp"		%read{7,7} %write{2147483647,-1}
+temp	float	$tmp5	%read{9,9} %write{8,8}
+temp	float	$tmp6	%read{12,12} %write{10,10}
+temp	float	$tmp7	%read{12,12} %write{11,11}
+temp	float	$tmp8	%read{13,13} %write{12,12}
+const	float	$const6	2		%read{13,13} %write{2147483647,-1}
+temp	float	$tmp9	%read{17,17} %write{14,14}
+temp	float	$tmp10	%read{17,17} %write{16,16}
+temp	float	$tmp11	%read{16,16} %write{15,15}
+const	float	$const7	5		%read{16,16} %write{2147483647,-1}
+temp	float	$tmp12	%read{18,18} %write{17,17}
+temp	closure color	$tmp13	%read{20,20} %write{19,19}
+const	string	$const8	"pbrt_diffuse"		%read{19,19} %write{2147483647,-1}
+temp	closure color	$tmp14	%read{22,22} %write{21,21}
+const	int	$const9	0		%read{21,23} %write{2147483647,-1}
+const	string	$const10	"pbrt_microfacet"		%read{21,23} %write{2147483647,-1}
+temp	closure color	$tmp15	%read{24,24} %write{23,23}
+const	float	$const11	0.0199999996		%read{23,23} %write{2147483647,-1}
+const	color	$const12	1 1 1		%read{24,24} %write{2147483647,-1}
+const	float	$const13	0.5		%read{25,25} %write{2147483647,-1}
+temp	int	$tmp17	%read{26,26} %write{25,25}
+temp	float	$tmp18	%read{29,29} %write{28,28}
+temp	closure color	$tmp19	%read{31,31} %write{29,29}
+temp	closure color	$tmp20	%read{31,31} %write{30,30}
+code ___main___
+# pbr_test.osl:11
+#     vector U = length(dPdu) > 0.0001 ? normalize(dPdu) : vector(1, 0, 0);
+	length		$tmp1 dPdu 	%filename{"pbr_test.osl"} %line{11} %argrw{"wr"}
+	gt		$tmp2 $tmp1 $const1 	%argrw{"wrr"}
+	if		$tmp2 4 5 	%argrw{"r"}
+	normalize	U dPdu 	%argrw{"wr"}
+	assign		U $const2 	%argrw{"wr"}
+# pbr_test.osl:14
+#     float cosTheta = clamp(abs(dot(I, N)), 0.0, 1.0);
+	dot		$tmp4 I N 	%line{14} %argrw{"wrr"}
+	abs		$tmp3 $tmp4 	%argrw{"wr"}
+	functioncall	$const5 10 	%argrw{"r"}
+# /usr/local/share/OSL/shaders/stdosl.h:141
+# float  clamp (float x, float minval, float maxval) { return max(min(x,maxval),minval); }
+	min		$tmp5 $tmp3 $const4 	%filename{"/usr/local/share/OSL/shaders/stdosl.h"} %line{141} %argrw{"wrr"}
+	max		cosTheta $tmp5 $const3 	%argrw{"wrr"}
+# pbr_test.osl:15
+#     float f0 = pow((1.0 - ior) / (1.0 + ior), 2.0);
+	sub		$tmp6 $const4 ior 	%filename{"pbr_test.osl"} %line{15} %argrw{"wrr"}
+	add		$tmp7 $const4 ior 	%argrw{"wrr"}
+	div		$tmp8 $tmp6 $tmp7 	%argrw{"wrr"}
+	pow		f0 $tmp8 $const6 	%argrw{"wrr"}
+# pbr_test.osl:16
+#     float Fr = f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
+	sub		$tmp9 $const4 f0 	%line{16} %argrw{"wrr"}
+	sub		$tmp11 $const4 cosTheta 	%argrw{"wrr"}
+	pow		$tmp10 $tmp11 $const7 	%argrw{"wrr"}
+	mul		$tmp12 $tmp9 $tmp10 	%argrw{"wrr"}
+	add		Fr f0 $tmp12 	%argrw{"wrr"}
+# pbr_test.osl:19
+#     closure color diffuse_comp = base_color * pbrt_diffuse(N);
+	closure		$tmp13 $const8 N 	%line{19} %argrw{"wrr"}
+	mul		diffuse_comp $tmp13 base_color 	%argrw{"wrr"}
+# pbr_test.osl:20
+#     closure color metal_comp   = base_color * pbrt_microfacet(N, U, roughness, roughness, ior, 0);
+	closure		$tmp14 $const10 N U roughness roughness ior $const9 	%line{20} %argrw{"wrrrrrrr"}
+	mul		metal_comp $tmp14 base_color 	%argrw{"wrr"}
+# pbr_test.osl:23
+#     closure color coat_comp    = color(1) * pbrt_microfacet(N, U, 0.02, 0.02, ior, 0);
+	closure		$tmp15 $const10 N U $const11 $const11 ior $const9 	%line{23} %argrw{"wrrrrrrr"}
+	mul		coat_comp $tmp15 $const12 	%argrw{"wrr"}
+# pbr_test.osl:26
+#     if (metallic > 0.5) {
+	gt		$tmp17 metallic $const13 	%line{26} %argrw{"wrr"}
+	if		$tmp17 28 32 	%argrw{"r"}
+# pbr_test.osl:28
+#         Ci = metal_comp;
+	assign		Ci metal_comp 	%line{28} %argrw{"wr"}
+# pbr_test.osl:31
+#         Ci = ((1.0 - Fr) * diffuse_comp) + (Fr * coat_comp);
+	sub		$tmp18 $const4 Fr 	%line{31} %argrw{"wrr"}
+	mul		$tmp19 diffuse_comp $tmp18 	%argrw{"wrr"}
+	mul		$tmp20 coat_comp Fr 	%argrw{"wrr"}
+	add		Ci $tmp19 $tmp20 	%argrw{"wrr"}
+	end

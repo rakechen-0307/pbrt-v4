@@ -9,6 +9,7 @@
 #include <OSL/oslexec.h>
 #include <OSL/oslquery.h>
 #include <OSL/oslclosure.h>
+#include <OSL/genclosure.h>
 #include <OSL/rendererservices.h>
 #include <OpenImageIO/texture.h>
 #include <OpenImageIO/errorhandler.h>
@@ -38,12 +39,61 @@ static OSL::ShadingSystem* shadingSystem = nullptr;
 static OIIO::TextureSystem* textureSystem = nullptr;
 
 enum PbrtClosureIDs {
-    CLOSURE_ID_DIFFUSE = 100,
-    CLOSURE_ID_MICROFACET = 101
+    CLOSURE_ID_DIFFUSE     = 100,
+    CLOSURE_ID_MICROFACET  = 101,
+    CLOSURE_ID_DIELECTRIC  = 102,
+    CLOSURE_ID_EMISSION    = 103,
+    CLOSURE_ID_TRANSPARENT = 104
 };
 
+// Define the closures
 struct DiffuseParams {
     OSL::Vec3 N;
+    float pad;
+};
+
+struct MicrofacetParams {
+    OSL::Vec3 N;
+    float pad1;
+    OSL::Vec3 U;
+    float pad2;
+    float xalpha;
+    float yalpha;
+    float eta;
+    int refract;
+};
+
+struct DielectricParams {
+    OSL::Vec3 N;
+    float pad1;
+    OSL::Vec3 U;
+    float pad2;
+    float eta;
+};
+
+// 1. Map OSL's pbrt_diffuse(N)
+static OSL::ClosureParam diffuse_params[] = {
+    { OSL::TypeNormal, (int)offsetof(DiffuseParams, N), nullptr, (int)sizeof(OSL::Vec3) },
+    { OSL::TypeDesc(), 0, nullptr, 0 }
+};
+
+// 2. Map OSL's pbrt_microfacet(N, U, xalpha, yalpha, eta, refract)
+static OSL::ClosureParam microfacet_params[] = {
+    { OSL::TypeNormal, (int)offsetof(MicrofacetParams, N), nullptr, (int)sizeof(OSL::Vec3) },
+    { OSL::TypeVector, (int)offsetof(MicrofacetParams, U), nullptr, (int)sizeof(OSL::Vec3) },
+    { OSL::TypeFloat,  (int)offsetof(MicrofacetParams, xalpha), nullptr, (int)sizeof(float) },
+    { OSL::TypeFloat,  (int)offsetof(MicrofacetParams, yalpha), nullptr, (int)sizeof(float) },
+    { OSL::TypeFloat,  (int)offsetof(MicrofacetParams, eta), nullptr, (int)sizeof(float) },
+    { OSL::TypeInt,    (int)offsetof(MicrofacetParams, refract), nullptr, (int)sizeof(int) },
+    { OSL::TypeDesc(), 0, nullptr, 0 }
+};
+
+// 3. Map OSL's pbrt_dielectric(N, U, eta)
+static OSL::ClosureParam dielectric_params[] = {
+    { OSL::TypeNormal, (int)offsetof(DielectricParams, N), nullptr, (int)sizeof(OSL::Vec3) },
+    { OSL::TypeVector, (int)offsetof(DielectricParams, U), nullptr, (int)sizeof(OSL::Vec3) },
+    { OSL::TypeFloat,  (int)offsetof(DielectricParams, eta), nullptr, (int)sizeof(float) },
+    { OSL::TypeDesc(), 0, nullptr, 0 }
 };
 
 void InitOSL() {
@@ -70,14 +120,14 @@ void InitOSL() {
 
         shadingSystem->attribute("searchpath:shader", searchPath);
         textureSystem->attribute("searchpath", searchPath);
-        // Register the diffuse closure
-        shadingSystem->register_closure(
-            "diffuse", 
-            CLOSURE_ID_DIFFUSE,
-            nullptr,  // params
-            nullptr,  // prepare function
-            nullptr   // setup function
-        );
+
+        // Register the closures
+        shadingSystem->register_closure("pbrt_diffuse", CLOSURE_ID_DIFFUSE, diffuse_params, nullptr, nullptr);
+        shadingSystem->register_closure("pbrt_microfacet", CLOSURE_ID_MICROFACET, microfacet_params, nullptr, nullptr);
+        shadingSystem->register_closure("pbrt_dielectric", CLOSURE_ID_DIELECTRIC, dielectric_params, nullptr, nullptr);
+        shadingSystem->register_closure("pbrt_emission", CLOSURE_ID_EMISSION, nullptr, nullptr, nullptr);
+        shadingSystem->register_closure("pbrt_transparent", CLOSURE_ID_TRANSPARENT, nullptr, nullptr, nullptr);
+
         printf("[OSL] Shader and Texture search path configured as: %s\n", searchPath.c_str());
     }
 }
@@ -143,11 +193,6 @@ struct OSLTextureState {
 OSLFloatTexture::OSLFloatTexture(const std::string& shaderName, const TextureParameterDictionary &parameters) {
     state = new OSLTextureState();
     if (!shadingSystem) return;
-
-    // Turn off OSL's optimizer entirely
-    // This guarantees OSL will not delete our variables behind our backs
-    int opt = 0;
-    shadingSystem->attribute("optimize", opt);
 
     state->shaderGroup = shadingSystem->ShaderGroupBegin(shaderName);
 
@@ -286,11 +331,6 @@ OSLSpectrumTexture::OSLSpectrumTexture(const std::string& shaderName, const Text
     : spectrumType(spectrumType) {
     state = new OSLTextureState();
     if (!shadingSystem) return;
-
-    // Turn off OSL's optimizer entirely
-    // This guarantees OSL will not delete our variables behind our backs
-    int opt = 0;
-    shadingSystem->attribute("optimize", opt);
 
     state->shaderGroup = shadingSystem->ShaderGroupBegin(shaderName);
 
@@ -434,8 +474,6 @@ OSLMaterial::OSLMaterial(const std::string& shaderName, const TextureParameterDi
     state = new OSLTextureState();
     if (!shadingSystem) return;
 
-    int opt = 0;
-    shadingSystem->attribute("optimize", opt);
     state->shaderGroup = shadingSystem->ShaderGroupBegin(shaderName);
 
     std::string searchPath = ".";
@@ -524,9 +562,11 @@ std::string OSLMaterial::ToString() const {
 
 // Evaluation loop and closure extraction for OSLMaterial
 template <typename TextureEvaluator>
-DiffuseBxDF OSLMaterial::GetBxDF(TextureEvaluator texEval, MaterialEvalContext ctx, SampledWavelengths &lambda) const {
+OSLBxDF OSLMaterial::GetBxDF(TextureEvaluator texEval, MaterialEvalContext ctx, SampledWavelengths &lambda) const {
+    OSLBxDF oslBxDF;
+
     if (!state || !state->shaderGroup || !shadingSystem) {
-        return DiffuseBxDF(SampledSpectrum(0.f));
+        return oslBxDF;
     }
 
     OSL::ShaderGlobals sg;
@@ -535,6 +575,11 @@ DiffuseBxDF OSLMaterial::GetBxDF(TextureEvaluator texEval, MaterialEvalContext c
     sg.P = OSL::Vec3(ctx.p.x, ctx.p.y, ctx.p.z);
     sg.N = OSL::Vec3(ctx.ns.x, ctx.ns.y, ctx.ns.z);  // Shading normal
     sg.Ng = OSL::Vec3(ctx.n.x, ctx.n.y, ctx.n.z);    // Geometric normal
+    sg.I = OSL::Vec3(-ctx.wo.x, -ctx.wo.y, -ctx.wo.z); 
+    sg.dPdu = OSL::Vec3(ctx.dpdus.x, ctx.dpdus.y, ctx.dpdus.z); 
+    Vector3f dpdvs = Cross(ctx.ns, ctx.dpdus);
+    sg.dPdv = OSL::Vec3(dpdvs.x, dpdvs.y, dpdvs.z);
+    sg.backfacing = (Dot(ctx.n, ctx.wo) < 0.f) ? 1 : 0;
     sg.u = ctx.uv[0];
     sg.v = ctx.uv[1];
     sg.dPdx = OSL::Vec3(ctx.dpdx.x, ctx.dpdx.y, ctx.dpdx.z);
@@ -553,29 +598,61 @@ DiffuseBxDF OSLMaterial::GetBxDF(TextureEvaluator texEval, MaterialEvalContext c
     SampledSpectrum diffuseWeight(0.f);
 
     if (success && sg.Ci) {
-        // Read the closure tree directly from ShaderGlobals
         const OSL::ClosureColor* Ci = (const OSL::ClosureColor*)sg.Ci;
-        
-        // Walk the tree and accumulate the weights of all diffuse closures
         std::vector<ExtractedClosure> closures;
         ProcessClosureTree(Ci, RGB(1, 1, 1), closures);
 
         const RGBColorSpace *sRGB = RGBColorSpace::sRGB;
         for (const auto& c : closures) {
-            if (c.id == CLOSURE_ID_DIFFUSE) {
-                // Sum the weights just in case the shader mixes two diffuse nodes together
-                diffuseWeight += RGBAlbedoSpectrum(*sRGB, Clamp(c.weight, 0, 1)).Sample(lambda);
+            float r = std::isnan(c.weight.r) ? 0.f : std::max(0.f, c.weight.r);
+            float g = std::isnan(c.weight.g) ? 0.f : std::max(0.f, c.weight.g);
+            float b = std::isnan(c.weight.b) ? 0.f : std::max(0.f, c.weight.b);
+            
+            RGB rgbWeight(r, g, b);
+            // Convert OSL weight to PBRT spectrum
+            SampledSpectrum weight = RGBUnboundedSpectrum(*sRGB, Clamp(c.weight, 0, 1)).Sample(lambda);
+
+            if (weight.MaxComponentValue() <= 0.0f) continue;
+            
+            switch (c.id) {
+                case CLOSURE_ID_DIFFUSE: {
+                    // Give DiffuseBxDF a white reflectance. The actual color is handled by the 'weight'.
+                    oslBxDF.AddDiffuse(weight, DiffuseBxDF(SampledSpectrum(1.f)));
+                    break;
+                }
+                case CLOSURE_ID_MICROFACET: {
+                    const MicrofacetParams* p = (const MicrofacetParams*)c.data;
+
+                    float ax = std::max(0.001f, p->xalpha);
+                    float ay = std::max(0.001f, p->yalpha);
+                    TrowbridgeReitzDistribution distrib(ax, ay);
+                    
+                    if (p->refract == 1) { 
+                        // It is transmitting Glass
+                        oslBxDF.AddDielectric(weight, DielectricBxDF(p->eta, distrib));
+                    } else { 
+                        // It is reflecting Metal. Approximate standard OSL metal using ConductorBxDF.
+                        SampledSpectrum eta(p->eta); 
+                        SampledSpectrum k(1.f);
+                        oslBxDF.AddConductor(weight, ConductorBxDF(distrib, eta, k));
+                    }
+                    break;
+                }
+                case CLOSURE_ID_DIELECTRIC: {
+                    const DielectricParams* p = (const DielectricParams*)c.data;
+                    TrowbridgeReitzDistribution distrib(0.f, 0.f);  // 0 roughness = perfectly smooth
+                    oslBxDF.AddDielectric(weight, DielectricBxDF(p->eta, distrib));
+                    break;
+                }
             }
         }
     }
     shadingSystem->release_context(shadingCtx);
     
-    // Instantiate PBRT's native DiffuseBxDF using the physics weight calculated by OSL
-    return DiffuseBxDF(Clamp(diffuseWeight, 0, 1));
+    return oslBxDF;
 }
 
-// Explicit template instantiations so the linker can find GetBxDF
-template PBRT_CPU_GPU DiffuseBxDF OSLMaterial::GetBxDF(BasicTextureEvaluator, MaterialEvalContext ctx, SampledWavelengths &lambda) const;
-template PBRT_CPU_GPU DiffuseBxDF OSLMaterial::GetBxDF(UniversalTextureEvaluator, MaterialEvalContext ctx, SampledWavelengths &lambda) const;
+template PBRT_CPU_GPU OSLBxDF OSLMaterial::GetBxDF(BasicTextureEvaluator, MaterialEvalContext ctx, SampledWavelengths &lambda) const;
+template PBRT_CPU_GPU OSLBxDF OSLMaterial::GetBxDF(UniversalTextureEvaluator, MaterialEvalContext ctx, SampledWavelengths &lambda) const;
 
 } // namespace pbrt
