@@ -31,13 +31,15 @@ class SubsurfaceMaterial;
 class ThinDielectricMaterial;
 class MixMaterial;
 
+class OSLMaterial;
+
 // Material Definition
 class Material
     : public TaggedPointer<  // Material Types
           CoatedDiffuseMaterial, CoatedConductorMaterial, ConductorMaterial,
           DielectricMaterial, DiffuseMaterial, DiffuseTransmissionMaterial, HairMaterial,
-          MeasuredMaterial, SubsurfaceMaterial, ThinDielectricMaterial, MixMaterial
-
+          MeasuredMaterial, SubsurfaceMaterial, ThinDielectricMaterial, MixMaterial, 
+          OSLMaterial
           > {
   public:
     // Material Interface

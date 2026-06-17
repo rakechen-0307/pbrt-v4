@@ -891,6 +891,52 @@ class MeasuredMaterial {
     const MeasuredBxDFData *brdf;
 };
 
+// -----------------------------------------------------
+// OSLMaterial Definition
+// -----------------------------------------------------
+struct OSLTextureState;
+
+class OSLMaterial {
+  public:
+    using BxDF = DiffuseBxDF;
+    using BSSRDF = void;
+
+    OSLMaterial(const std::string &shaderName, const TextureParameterDictionary &parameters);
+
+    static const char *Name() { return "OSLMaterial"; }
+
+    template <typename TextureEvaluator>
+    PBRT_CPU_GPU bool CanEvaluateTextures(TextureEvaluator texEval) const { return true; }
+
+    PBRT_CPU_GPU FloatTexture GetDisplacement() const { return nullptr; }
+    PBRT_CPU_GPU const Image *GetNormalMap() const { return nullptr; }
+
+    static OSLMaterial *Create(const TextureParameterDictionary &parameters,
+                               Image *normalMap, const FileLoc *loc, Allocator alloc);
+
+    // This gets executed per-ray to evaluate the OSL Shader
+    template <typename TextureEvaluator>
+    PBRT_CPU_GPU DiffuseBxDF GetBxDF(TextureEvaluator texEval, MaterialEvalContext ctx,
+                                     SampledWavelengths &lambda) const
+
+#if defined(__CUDA_ARCH__)
+    { return DiffuseBxDF(SampledSpectrum(0.f)); }
+#else
+    ;
+#endif
+
+    template <typename TextureEvaluator>
+    PBRT_CPU_GPU void GetBSSRDF(TextureEvaluator texEval, MaterialEvalContext ctx,
+                                SampledWavelengths &lambda) const {}
+
+    PBRT_CPU_GPU static constexpr bool HasSubsurfaceScattering() { return false; }
+
+    std::string ToString() const;
+
+  private:
+    OSLTextureState *state = nullptr;
+};
+
 // Material Inline Method Definitions
 template <typename TextureEvaluator>
 inline BSDF Material::GetBSDF(TextureEvaluator texEval, MaterialEvalContext ctx,
