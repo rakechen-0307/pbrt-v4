@@ -15,9 +15,7 @@ WorldBegin
 LightSource "distant" "point3 from" [0 5 -5] "point3 to" [0 0 0] 
     "rgb L" [5 5 5]
 
-# ----------------------------------------------------
-# 1. Evaluate your OSL noise as a Spectrum
-# ----------------------------------------------------
+# Evaluate OSL noise as a Spectrum
 Texture "my_image" "spectrum" "osl"
     "string filename" "image_reader"
     "string texname" "grid.jpg"

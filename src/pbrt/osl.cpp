@@ -49,7 +49,7 @@ enum PbrtClosureIDs {
 // Define the closures
 struct DiffuseParams {
     OSL::Vec3 N;
-    float pad;
+    float pad;  // Acts as buffer because OSL::Vec3 uses 12 bytes while LLVM compiler operates on 16 bytes
 };
 
 struct MicrofacetParams {
@@ -150,7 +150,7 @@ void CleanupOSL() {
 struct ExtractedClosure {
     int id;
     RGB weight;
-    const void* data;  // Pointer to DiffuseParams or MicrofacetParams
+    const void* data;
 };
 
 void ProcessClosureTree(const OSL::ClosureColor* closure, RGB currentWeight, std::vector<ExtractedClosure>& outClosures) {

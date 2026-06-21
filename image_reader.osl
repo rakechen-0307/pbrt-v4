@@ -4,8 +4,8 @@ shader image_reader(
     output color Cout = 0
 ) {
     if (texname != "") {
-        // The built-in texture() function will now automatically talk to OpenImageIO and load the file!
-        // Read the texture with 'periodic' wrapping so it repeats infinitely!
+        // The built-in texture() function will automatically talk to OpenImageIO and load the file
+        // Read the texture with 'periodic' wrapping so it repeats infinitely
         color raw_color = texture(texname, u * scale, v * scale, "wrap", "periodic");
         
         // Convert from sRGB to Linear Space (Gamma Decoding)

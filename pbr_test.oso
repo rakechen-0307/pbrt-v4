@@ -50,57 +50,57 @@ temp	float	$tmp18	%read{29,29} %write{28,28}
 temp	closure color	$tmp19	%read{31,31} %write{29,29}
 temp	closure color	$tmp20	%read{31,31} %write{30,30}
 code ___main___
-# pbr_test.osl:11
+# pbr_test.osl:12
 #     vector U = length(dPdu) > 0.0001 ? normalize(dPdu) : vector(1, 0, 0);
-	length		$tmp1 dPdu 	%filename{"pbr_test.osl"} %line{11} %argrw{"wr"}
+	length		$tmp1 dPdu 	%filename{"pbr_test.osl"} %line{12} %argrw{"wr"}
 	gt		$tmp2 $tmp1 $const1 	%argrw{"wrr"}
 	if		$tmp2 4 5 	%argrw{"r"}
 	normalize	U dPdu 	%argrw{"wr"}
 	assign		U $const2 	%argrw{"wr"}
-# pbr_test.osl:14
+# pbr_test.osl:15
 #     float cosTheta = clamp(abs(dot(I, N)), 0.0, 1.0);
-	dot		$tmp4 I N 	%line{14} %argrw{"wrr"}
+	dot		$tmp4 I N 	%line{15} %argrw{"wrr"}
 	abs		$tmp3 $tmp4 	%argrw{"wr"}
 	functioncall	$const5 10 	%argrw{"r"}
 # /usr/local/share/OSL/shaders/stdosl.h:141
 # float  clamp (float x, float minval, float maxval) { return max(min(x,maxval),minval); }
 	min		$tmp5 $tmp3 $const4 	%filename{"/usr/local/share/OSL/shaders/stdosl.h"} %line{141} %argrw{"wrr"}
 	max		cosTheta $tmp5 $const3 	%argrw{"wrr"}
-# pbr_test.osl:15
+# pbr_test.osl:16
 #     float f0 = pow((1.0 - ior) / (1.0 + ior), 2.0);
-	sub		$tmp6 $const4 ior 	%filename{"pbr_test.osl"} %line{15} %argrw{"wrr"}
+	sub		$tmp6 $const4 ior 	%filename{"pbr_test.osl"} %line{16} %argrw{"wrr"}
 	add		$tmp7 $const4 ior 	%argrw{"wrr"}
 	div		$tmp8 $tmp6 $tmp7 	%argrw{"wrr"}
 	pow		f0 $tmp8 $const6 	%argrw{"wrr"}
-# pbr_test.osl:16
+# pbr_test.osl:17
 #     float Fr = f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
-	sub		$tmp9 $const4 f0 	%line{16} %argrw{"wrr"}
+	sub		$tmp9 $const4 f0 	%line{17} %argrw{"wrr"}
 	sub		$tmp11 $const4 cosTheta 	%argrw{"wrr"}
 	pow		$tmp10 $tmp11 $const7 	%argrw{"wrr"}
 	mul		$tmp12 $tmp9 $tmp10 	%argrw{"wrr"}
 	add		Fr f0 $tmp12 	%argrw{"wrr"}
-# pbr_test.osl:19
-#     closure color diffuse_comp = base_color * pbrt_diffuse(N);
-	closure		$tmp13 $const8 N 	%line{19} %argrw{"wrr"}
-	mul		diffuse_comp $tmp13 base_color 	%argrw{"wrr"}
 # pbr_test.osl:20
+#     closure color diffuse_comp = base_color * pbrt_diffuse(N);
+	closure		$tmp13 $const8 N 	%line{20} %argrw{"wrr"}
+	mul		diffuse_comp $tmp13 base_color 	%argrw{"wrr"}
+# pbr_test.osl:21
 #     closure color metal_comp   = base_color * pbrt_microfacet(N, U, roughness, roughness, ior, 0);
-	closure		$tmp14 $const10 N U roughness roughness ior $const9 	%line{20} %argrw{"wrrrrrrr"}
+	closure		$tmp14 $const10 N U roughness roughness ior $const9 	%line{21} %argrw{"wrrrrrrr"}
 	mul		metal_comp $tmp14 base_color 	%argrw{"wrr"}
-# pbr_test.osl:23
+# pbr_test.osl:24
 #     closure color coat_comp    = color(1) * pbrt_microfacet(N, U, 0.02, 0.02, ior, 0);
-	closure		$tmp15 $const10 N U $const11 $const11 ior $const9 	%line{23} %argrw{"wrrrrrrr"}
+	closure		$tmp15 $const10 N U $const11 $const11 ior $const9 	%line{24} %argrw{"wrrrrrrr"}
 	mul		coat_comp $tmp15 $const12 	%argrw{"wrr"}
-# pbr_test.osl:26
+# pbr_test.osl:27
 #     if (metallic > 0.5) {
-	gt		$tmp17 metallic $const13 	%line{26} %argrw{"wrr"}
+	gt		$tmp17 metallic $const13 	%line{27} %argrw{"wrr"}
 	if		$tmp17 28 32 	%argrw{"r"}
-# pbr_test.osl:28
+# pbr_test.osl:29
 #         Ci = metal_comp;
-	assign		Ci metal_comp 	%line{28} %argrw{"wr"}
-# pbr_test.osl:31
+	assign		Ci metal_comp 	%line{29} %argrw{"wr"}
+# pbr_test.osl:32
 #         Ci = ((1.0 - Fr) * diffuse_comp) + (Fr * coat_comp);
-	sub		$tmp18 $const4 Fr 	%line{31} %argrw{"wrr"}
+	sub		$tmp18 $const4 Fr 	%line{32} %argrw{"wrr"}
 	mul		$tmp19 diffuse_comp $tmp18 	%argrw{"wrr"}
 	mul		$tmp20 coat_comp Fr 	%argrw{"wrr"}
 	add		Ci $tmp19 $tmp20 	%argrw{"wrr"}

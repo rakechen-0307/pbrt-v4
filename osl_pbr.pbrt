@@ -18,9 +18,9 @@ LightSource "distant" "point3 from" [0 5 -5] "point3 to" [0 0 0]
 # Now Material controls everything
 Material "osl" 
     "string filename" "pbr_test"
-    "vector3 base_color" [ 1.0 0.8 0.3 ]
-    "float roughness" [ 0.15 ]
-    "float metallic" [ 1.0 ]
+    "vector3 base_color" [ 0.05 0.2 0.8 ]
+    "float roughness" [ 0.3 ]
+    "float metallic" [ 0.0 ]
 
 # Draw a sphere
 Shape "sphere" "float radius" [1]

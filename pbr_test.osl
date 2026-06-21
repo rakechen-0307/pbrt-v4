@@ -1,3 +1,4 @@
+// Define the necessary closures
 closure color pbrt_diffuse(normal N) [[ int builtin = 1 ]];
 closure color pbrt_microfacet(normal N, vector U, float xalpha, float yalpha, float eta, int refract) [[ int builtin = 1 ]];
 

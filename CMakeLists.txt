@@ -1152,4 +1152,5 @@ install (TARGETS
   lib
   )
 
+# Use C++20 for OSL-related contents
 set_source_files_properties(src/pbrt/osl.cpp PROPERTIES LANGUAGE CXX COMPILE_FLAGS "-std=c++20")
